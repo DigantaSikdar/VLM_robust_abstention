@@ -5,7 +5,7 @@ The ONLY thing that loops / parallelizes evaluation. Given a set of checkpoints
 and a suite of tasks, it fans out one run_task job per (checkpoint, task) cell
 across the available GPUs and collects the per-cell JSON into a summary table.
 
-    python -m caad.eval.orchestrate --suite configs/eval/video_suite.yaml \
+    python -m caad.eval.orchestrate --suite configs/eval/image_suite.yaml \
         --run <output_dir> --gpus 0,1,2,3
 
 Each job is the atomic run_task unit; this module owns scheduling only, so the

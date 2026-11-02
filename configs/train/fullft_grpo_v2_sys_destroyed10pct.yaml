@@ -1,0 +1,96 @@
+# Full-FT GRPO v2 (strict reward, stop at </answer>, KL 0.04), system prompt, 3750 steps (same compute as the 0% run fullft_grpo_qwen3vl4b_sys_1ep_v2).
+# Data: 30k severity-4 GQA + 3,334 GQA questions whose image is DESTROYED by an extreme corruption
+# (severity >> 5), labelled 'unanswerable' (10.0%). Every question carries the VizWiz note. On the
+# destroyed items clean_image == corrupted_image, so the RKL teacher also sees the destroyed image.
+# Built by caad.data.prepare_destroyed_gqa (see its log for the chosen style:severity cells).
+method: grpo
+grpo:
+  format_reward: 0.1
+  clip_eps: 0.2
+  std_normalize: true
+  strict_reward: true
+  answer_format: tags
+  kl_beta: 0.04
+  ref_device: cuda:1
+seed: 0
+deterministic: false
+log_level: info
+output_dir: /gscratch/dsikdar/outputs/fullft_grpo_v2_sys_destroyed10pct
+model:
+  name: Qwen/Qwen3-VL-4B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null
+lora:
+  enabled: false
+caad:
+  chunk_size: 64
+train:
+  optimizer: bf16_adamw
+  learning_rate: 1.0e-06
+  weight_decay: 0.01
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_steps: 3750
+  num_train_epochs: 1
+  ema_every: 1
+  save_steps: 1250
+  save_total_limit: 0
+  logging_steps: 1
+  logging_first_step: true
+rollout:
+  backend: vllm
+  sync_mode: full
+  sync_every: 10
+  num_generations: 8
+  temperature: 1.0
+  top_p: 1.0
+  max_completion_length: 512
+  stop:
+  - </answer>
+  server:
+    host: 127.0.0.1
+    port: 8000
+    gpu: 0
+    startup_timeout: 900
+    weights_dir: null
+eval:
+  do_eval: false
+  eval_steps: 0
+data:
+  manifest: /gscratch/dsikdar/caad_data/gqa_s4_destroyed10pct/manifest.jsonl
+  image_root: null
+  prompt_format: think_answer
+  system_prompt: null
+wandb:
+  enabled: true
+  project: caad
+  entity: null
+  run_name: fullft_grpo_v2_sys_destroyed10pct
+  tags:
+  - full-ft
+  - grpo
+  - strict-reward
+  - kl0.04
+  - stop-answer
+  - qwen3-vl-4b
+  - gqa30k
+  - severity4
+  - 1epoch
+  - system-prompt
+  - destroyed-gqa-10pct
+  - vizwiz-note-all
+  log_completions: true
+  rollout_table_every: 50
+  config: null
+hub:
+  enabled: false
+  model_id: ''
+  private: true
+  push_every_n_steps: 0

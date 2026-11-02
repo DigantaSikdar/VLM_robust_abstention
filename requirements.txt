@@ -14,16 +14,22 @@ transformers>=4.49            # Qwen2.5-VL support
 accelerate>=0.34
 peft>=0.13
 
-# --- video VLM I/O ---
-qwen-vl-utils                 # uses torchvision for video decode if decord is absent
+# --- image VLM I/O ---
+qwen-vl-utils
 opencv-python-headless>=4.9   # corruption engine (data/corruption.py)
+pillow>=10                    # image manifests (caad.data.prepare_images)
 numpy>=1.26
 pyyaml>=6.0
 
 # --- dataset prep / download ---
 huggingface_hub[cli,hf_transfer]>=0.24   # `hf download` + fast transfer
-pandas>=2.0                   # read UrbanVideo MCQ.parquet
+pandas>=2.0                   # read parquet dataset dumps
 pyarrow>=14
+
+# --- evaluation: ImageNet-C corruptions (TextVQA-C / GQA-C) ---
+imagecorruptions>=1.1.2       # caad.data.imagenet_c shims it for NumPy 2 / new scikit-image
+scikit-image
+setuptools<81                 # imagecorruptions imports pkg_resources (removed in 81)
 
 # --- logging / viz ---
 wandb
@@ -36,4 +42,3 @@ ruff>=0.6
 # --- optional / arch-specific (uncomment where supported) ---
 # deepspeed>=0.16             # multi-GPU ZeRO-2/3 only
 # vllm>=0.8                   # rollout.backend=vllm (use backend=hf to start)
-# decord                      # x86 video backend; on ARM rely on torchvision

@@ -49,7 +49,7 @@ class MetricsLogger:
     can plot a run without W&B access.
     """
 
-    def __init__(self, run_path, wandb_cfg=None):
+    def __init__(self, run_path, wandb_cfg=None, full_config=None):
         self.path = Path(run_path) / "results" / "metrics.jsonl"
         self._fh = self.path.open("a")
         self._wandb = None
@@ -59,7 +59,9 @@ class MetricsLogger:
             # explicit wandb.run_name wins; else fall back to the run-id (dir name)
             name = wandb_cfg.get("run_name") or Path(run_path).name
             wandb.init(project=wandb_cfg["project"], name=name,
-                       dir=str(run_path), config=wandb_cfg.get("config"))
+                       entity=wandb_cfg.get("entity"), dir=str(run_path),
+                       config=wandb_cfg.get("config") or full_config,
+                       tags=wandb_cfg.get("tags"))
 
     def log(self, step: int, metrics: dict):
         row = {"step": step, **{k: _scalar(v) for k, v in metrics.items()}}
@@ -67,6 +69,21 @@ class MetricsLogger:
         self._fh.flush()
         if self._wandb is not None:
             self._wandb.log(row, step=step)
+
+    def log_rollouts(self, step: int, rows: list):
+        """Sample rollouts (with their corrupted image) as a W&B table, and to
+        results/rollouts.jsonl."""
+        with (self.path.parent / "rollouts.jsonl").open("a") as fh:
+            for r in rows:
+                fh.write(json.dumps({"step": step, **r}) + "\n")
+        if self._wandb is not None:
+            cols = ["step", "image", "corruption", "question", "gold", "correct",
+                    "answer_tag", "completion"]
+            tbl = self._wandb.Table(columns=cols)
+            for r in rows:
+                tbl.add_data(step, self._wandb.Image(r["image"]), r["corruption"], r["question"],
+                             r["gold"], r["correct"], r["answer_tag"], r["completion"])
+            self._wandb.log({"rollouts/samples": tbl}, step=step)
 
     def close(self):
         self._fh.close()

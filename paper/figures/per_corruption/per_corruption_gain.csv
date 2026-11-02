@@ -1,0 +1,39 @@
+corruption,family,seen_in_training,model,gain_points,ci95_half_width,n
+zoom_blur,blur,False,RKL distillation,4.55,2.26,1186
+zoom_blur,blur,False,GRPO,10.62,2.44,1186
+defocus_blur,blur,False,RKL distillation,3.03,2.04,1190
+defocus_blur,blur,False,GRPO,9.92,2.33,1190
+glass_blur,blur,False,RKL distillation,2.27,2.12,1188
+glass_blur,blur,False,GRPO,8.75,2.32,1188
+gaussian_blur,blur,True,RKL distillation,3.45,2.19,1187
+gaussian_blur,blur,True,GRPO,8.34,2.43,1187
+motion_blur,blur,True,RKL distillation,2.52,2.04,1189
+motion_blur,blur,True,GRPO,7.32,2.12,1189
+gaussian_noise,noise,True,RKL distillation,4.62,2.15,1190
+gaussian_noise,noise,True,GRPO,9.33,2.41,1190
+impulse_noise,noise,False,RKL distillation,1.43,2.17,1190
+impulse_noise,noise,False,GRPO,8.32,2.36,1190
+shot_noise,noise,False,RKL distillation,3.70,2.06,1188
+shot_noise,noise,False,GRPO,8.16,2.26,1188
+speckle_noise,noise,False,RKL distillation,-1.68,2.10,1189
+speckle_noise,noise,False,GRPO,7.82,2.34,1189
+contrast,digital,False,RKL distillation,1.68,1.95,1189
+contrast,digital,False,GRPO,8.66,2.29,1189
+elastic_transform,digital,False,RKL distillation,2.02,1.98,1187
+elastic_transform,digital,False,GRPO,8.59,2.12,1187
+jpeg_compression,digital,True,RKL distillation,2.44,2.01,1188
+jpeg_compression,digital,True,GRPO,8.50,2.28,1188
+pixelate,digital,True,RKL distillation,1.77,2.03,1186
+pixelate,digital,True,GRPO,8.18,2.34,1186
+saturate,digital,False,RKL distillation,0.34,1.88,1188
+saturate,digital,False,GRPO,8.16,2.22,1188
+snow,weather,True,RKL distillation,2.70,2.21,1187
+snow,weather,True,GRPO,10.28,2.36,1187
+spatter,weather,False,RKL distillation,2.10,2.04,1189
+spatter,weather,False,GRPO,8.24,2.22,1189
+frost,weather,False,RKL distillation,0.93,2.08,1189
+frost,weather,False,GRPO,7.91,2.28,1189
+fog,weather,True,RKL distillation,0.25,2.11,1191
+fog,weather,True,GRPO,7.89,2.18,1191
+brightness,weather,True,RKL distillation,0.08,1.95,1187
+brightness,weather,True,GRPO,5.81,2.13,1187

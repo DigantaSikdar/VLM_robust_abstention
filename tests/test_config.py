@@ -7,10 +7,10 @@ import yaml
 from caad.utils.config import load_config
 
 RECIPES = sorted(Path("configs/train").glob("*.yaml"))
-KNOWN_METHODS = {"caad"}
+KNOWN_METHODS = {"caad", "grpo"}
 REQUIRED = [
     ("method",), ("seed",), ("output_dir",),
-    ("model", "name"), ("model", "max_pixels"), ("model", "max_frames"),
+    ("model", "name"), ("model", "max_pixels"),
     ("lora", "enabled"),
     ("caad", "fkl_quantile"), ("caad", "chunk_size"), ("caad", "anchor_beta"),
     ("train", "learning_rate"), ("train", "gradient_accumulation_steps"),

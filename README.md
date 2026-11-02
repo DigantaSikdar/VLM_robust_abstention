@@ -1,9 +1,9 @@
 # Vision Self-Distillation — CAAD
 
 **CAAD** (Corruption-Aware Adaptive Distillation): a self-distillation method
-that improves a video VLM's robustness to spatio-temporal corruptions. A student
-answers from a *corrupted* view while an EMA teacher scores those same tokens
-under the *clean* view; an adaptive per-token divergence + a visual-feature
+that improves an image VLM's robustness to visual corruptions (lighting, camera,
+occlusion, weather, sensor, digital). A student answers from a *corrupted* image
+while an EMA teacher scores those same tokens under the *clean* image; an adaptive per-token divergence + a visual-feature
 alignment loss + an anchor KL pull the student toward the clean-view behavior.
 
 See [`docs/design.md`](docs/design.md) for the method and the cross-input
@@ -16,7 +16,8 @@ src/caad/            importable package (pip install -e .)
     base.py          shared rollout->step->backward->EMA loop
     caad.py          the CAAD per-sample step
   losses/divergence.py   gated FKL/JSD, anchor KL, visual L2
-  data/              corruption engine (pure fn) + manifest dataset
+  data/              corruption engine (pure fn), manifest dataset,
+                     image plumbing (vision.py), data prep (prepare_images.py)
   models/model_utils.py  dual-adapter LoRA plumbing + visual features
   rollout.py         vLLM generation worker (per-cluster integration seam)
   eval/              run_task (atomic) -> orchestrate (fan-out); metrics ONCE
@@ -45,29 +46,36 @@ Scale-up extras (x86 / where they build): `make install-scale` adds `deepspeed`
 
 ## Smoke test the pipeline (no real data, 1 GPU)
 Verify data → loop → loss → checkpoint end-to-end before a real run. Uses tiny
-synthetic clips and a **mock** rollout (no vLLM):
+synthetic images and a **mock** rollout (no vLLM):
 ```bash
-# 1) fabricate ~8 tiny synthetic clips + a manifest
-python data/prepare_corruptions.py synthetic --n 8 \
-  --clean-dir data/smoke/clean --out-dir data/smoke/corrupted \
-  --manifest data/smoke/manifest.jsonl --frames 8 --hw 128
+# 1) fabricate ~8 tiny synthetic images + a manifest
+python -m caad.data.prepare_images synthetic --n 8 --hw 224 \
+  --out-dir data/smoke_img --manifest data/smoke_img/manifest.jsonl --styles fog,jpeg
 # 2) run 2 optimizer steps on one GPU
 CFG=configs/train/smoke.yaml ACC=configs/accelerate/single_gpu.yaml bash scripts/train.sh
 ```
 
 ## Prepare real data
-Render corrupted copies of your clean clips and write the training manifest
-(`data/dataset.py` documents the row schema):
+Render corrupted copies of your clean images and write the training manifest
+(`data/dataset.py` documents the row schema). The source is a JSONL with rows
+`{"image_id"?, "image", "question", "answer"?}`:
 ```bash
-python data/prepare_corruptions.py real \
-  --source data/raw/clean.jsonl --out-dir data/corrupted \
-  --manifest data/train_manifest.jsonl --styles fog,night,rain --severity 3
+python -m caad.data.prepare_images real --source data/raw/images.jsonl \
+  --out-dir data/img_corrupted --manifest data/img_train_manifest.jsonl \
+  --styles all --severity 3 --sample-one
 ```
+`--sample-one` gives each image one random (style, severity); without it every
+combination is rendered. Clean and corrupted images are both written as PNG from
+the same decoded array so their resolutions always match.
+
+Corruptions (`data/corruption.py`): `dusk night overexposure shadow` ·
+`translation zoom rotation` · `static_occlusion` · `fog rain snow` ·
+`gaussian_noise gaussian_blur motion_blur` · `jpeg pixelate`; severity 1–5.
 
 ## Train (one command per experiment)
 ```bash
 # everything (incl. output_dir) reads from the recipe YAML
-CFG=configs/train/caad_lora_qwen25vl7b.yaml bash scripts/train.sh
+CFG=configs/train/caad_lora_qwen25vl7b.yaml ACC=configs/accelerate/ddp.yaml bash scripts/train.sh
 # or
 make train CFG=configs/train/caad_lora_qwen25vl7b.yaml
 ```
@@ -84,7 +92,9 @@ CFG=configs/train/caad_lora_qwen25vl7b.yaml OUT=outputs/caad_lora_7b_l2hi \
 ```bash
 RUN=outputs/caad_lora_qwen25vl7b GPUS=0,1,2,3 bash scripts/eval.sh   # RUN = the recipe's output_dir
 ```
-`orchestrate` fans out one `run_task` per (checkpoint, task) cell and writes
+Tasks: `image_mcq` (option letter) and `image_qa` (exact match), suite in
+`configs/eval/image_suite.yaml`; set `use_corrupted: true` for the robustness
+axis. `orchestrate` fans out one `run_task` per (checkpoint, task) cell and writes
 `results/summary.json`; metrics (pass@k, maj@k, avg-pass@1) come from the single
 `eval/metrics.py`.
 

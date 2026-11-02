@@ -5,7 +5,7 @@ in one file; no inheritance). A new experiment = copy a recipe, change a few
 keys. The launcher reads everything from the YAML:
 
 ```bash
-CFG=configs/train/caad_lora_qwen25vl7b.yaml bash scripts/train.sh
+CFG=configs/train/caad_lora_qwen25vl7b.yaml ACC=configs/accelerate/ddp.yaml bash scripts/train.sh
 ```
 
 Each recipe sets its own `output_dir:` — that directory holds the frozen
@@ -14,9 +14,11 @@ a cluster. Override for a one-off with `OUT=/path bash scripts/train.sh`.
 
 | recipe                          | model            | mode     | notes                  | status  |
 |---------------------------------|------------------|----------|------------------------|---------|
-| caad_lora_qwen25vl7b.yaml       | Qwen2.5-VL-7B    | LoRA     | default run            | planned |
+| caad_lora_qwen25vl7b.yaml       | Qwen2.5-VL-7B    | LoRA     | default run (hf rollout) | planned |
+| caad_lora_qwen25vl7b_rl.yaml    | Qwen2.5-VL-7B    | LoRA     | vLLM server on GPU 0   | planned |
 | caad_fullft_qwen25vl7b.yaml     | Qwen2.5-VL-7B    | full-FT  | needs ZeRO-3 + offload | planned |
 | caad_lora_qwen25vl3b.yaml       | Qwen2.5-VL-3B    | LoRA     | fast iteration         | planned |
+| smoke.yaml                      | Qwen2.5-VL-3B    | LoRA     | mock rollout, 2 steps  | —       |
 
 ## Common sweeps (copy a recipe, change one key)
 - `caad.anchor_beta`: 0.0 / 0.05 / 0.1   (anti-collapse strength)

@@ -1,0 +1,111 @@
+# =============================================================================
+# CAAD, FULL fine-tuning (no LoRA), second model family — student
+# InternVL3.5-4B (HF format) sees the CORRUPTED image; frozen teacher
+# InternVL3.5-8B sees the CLEAN image and scores the student's rollout tokens
+# (same vocabulary, chat template, InternViT-300M encoder and 256 tokens per
+# 448px tile). Everything else identical to
+# fullft_8bteacher_rkl_qwen3vl4b_sys_1ep.yaml: reverse KL, system prompt, one
+# epoch of severity-4 GQA 30k, lr 1e-6, BF16AdamW, teacher on the vLLM GPU.
+#   sbatch -p mb-h100 --gres=gpu:h100:2 scripts/slurm/train_fullft_2gpu.sbatch \
+#     configs/train/fullft_8bteacher_rkl_internvl35_4b_sys_1ep.yaml
+# =============================================================================
+method: caad
+seed: 0
+deterministic: false
+log_level: info
+
+output_dir: /gscratch/dsikdar/outputs/fullft_internvl35_t8b_rkl_sys_1ep
+
+model:
+  name: OpenGVLab/InternVL3_5-4B-HF
+  dtype: bfloat16
+  attn_implementation: sdpa
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null
+
+teacher:
+  name: OpenGVLab/InternVL3_5-8B-HF
+  dtype: bfloat16
+  attn_implementation: sdpa
+  device: cuda:1                   # the vLLM server's GPU (trainer sees CUDA_VISIBLE_DEVICES=1,0)
+
+lora:
+  enabled: false                   # full fine-tuning
+
+caad:
+  loss: eopd
+  eopd:
+    base: rkl
+    topk: 16
+    clip_eps: 0.2
+    diagnostics: true
+  fkl_gate: low_quantile
+  fkl_tau: 0.8
+  fkl_quantile: 0.0                # no forward KL
+  fkl_tau_low: 0.2
+  min_tokens_for_quantile: 24
+  jsd_beta: 0.5
+  lambda_l2: 0.0
+  anchor_beta: 0.0
+  ema_decay: 0.999                 # unused with an external teacher
+  chunk_size: 64
+
+train:
+  optimizer: bf16_adamw            # fp32 grads + moments, stochastic rounding into bf16 weights
+  learning_rate: 1.0e-6            # full-FT LR (LoRA runs used 1e-5)
+  weight_decay: 0.01               # torch AdamW default, as in the LoRA runs
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_steps: 0                     # 0 -> num_train_epochs over the dataset
+  num_train_epochs: 1              # 30000 / 8 = 3750 optimizer steps
+  ema_every: 1
+  save_steps: 1250
+  save_total_limit: 0
+  logging_steps: 1
+  logging_first_step: true
+
+rollout:
+  backend: vllm
+  sync_mode: full
+  sync_every: 10                   # push full weights to vLLM every 10 optimizer steps
+  num_generations: 2
+  temperature: 1.0
+  top_p: 1.0
+  max_completion_length: 512
+  server:
+    host: 127.0.0.1
+    port: 8000                     # the job script overrides this per job
+    gpu: 0
+    startup_timeout: 900
+    weights_dir: null              # the job script sets a node-local dir
+
+eval:
+  do_eval: false
+  eval_steps: 0
+
+data:
+  manifest: /gscratch/dsikdar/caad_data/gqa_train_30k_s4/manifest.jsonl
+  image_root: null
+  prompt_format: think_answer
+  system_prompt: null
+
+wandb:
+  enabled: true
+  project: caad
+  entity: null
+  run_name: fullft_internvl35_t8b_rkl_sys_1ep
+  tags: [full-ft, 8b-teacher, rkl, internvl3.5-4b, gqa30k, severity4, 1epoch, system-prompt]
+  log_completions: true
+  rollout_table_every: 50
+  config: null
+
+hub:
+  enabled: false
+  model_id: ""
+  private: true
+  push_every_n_steps: 0

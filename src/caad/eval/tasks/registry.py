@@ -3,7 +3,7 @@ caad/eval/tasks/registry.py
 ===========================
 name -> task module mapping. A task is any object exposing:
 
-    load(cfg) -> list[example]            # each example: {"id", "question", "video", "gold"}
+    load(cfg) -> list[example]            # each example: {"id", "question", "image", "gold"}
     score(example, completion) -> bool    # is this completion correct?
 
 One file per benchmark under tasks/; register it here so eval configs can select
@@ -34,4 +34,4 @@ def available():
 
 
 # Import task modules so their @register decorators run.
-from . import urbanvideo, video_qa  # noqa: E402,F401
+from . import image_qa, vqa_c  # noqa: E402,F401

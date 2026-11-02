@@ -2,7 +2,7 @@
 
 ## Method
 **CAAD** (Corruption-Aware Adaptive Distillation) is a self-distillation scheme
-for video VLMs. Per sample, one base model does four/five forwards:
+for image VLMs. Per sample, one base model does four/five forwards:
 
 | role        | view       | grad | what                                            |
 |-------------|------------|------|-------------------------------------------------|
@@ -24,13 +24,15 @@ Loss: `gated_divergence + lambda_l2 * visual_L2 + anchor_beta * KL(pi || pi_init
 ## Invariant
 Clean and corrupted prompts must tokenize to the **same length** so teacher
 logits at position `t` score the student's token `y_t` under an identical
-prefix. Corruptions therefore preserve `(T, H, W, C)`; `data/corruption.py`
+prefix. Corruptions therefore preserve `(H, W, C)`; `data/corruption.py`
 asserts shape preservation and `trainers/caad.py` asserts prompt-length parity.
+`prepare_images` writes clean and corrupted PNGs from the same decoded array so
+both decode to the same resolution.
 
 ## Determinism
-Corruptions are pure functions of `(frames, CorruptionSpec)`; all randomness
+Corruptions are pure functions of `(image, CorruptionSpec)`; all randomness
 flows from `np.random.default_rng(spec.seed)` and the seed derives from sample
-identity, so a corrupted clip reproduces bit-for-bit from its clean source.
+identity, so a corrupted image reproduces bit-for-bit from its clean source.
 
 ## Where things live
 - `trainers/` — one trainer per algorithm; variants are config flags.

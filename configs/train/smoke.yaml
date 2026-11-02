@@ -1,13 +1,11 @@
 # =============================================================================
 # CAAD — SMOKE TEST recipe. Shakes out data -> loop -> loss -> checkpoint on ONE
 # GPU with a tiny model, 2 optimizer steps, and a MOCK rollout (no vLLM/no
-# separate generation model). Use it to verify the pipeline runs before a real
-# experiment — NOT for results.
+# separate generation model). Verifies the pipeline runs — NOT for results.
 #
-#   # 1) make tiny synthetic data (no real videos needed):
-#   python data/prepare_corruptions.py synthetic --n 8 \
-#     --clean-dir data/smoke/clean --out-dir data/smoke/corrupted \
-#     --manifest data/smoke/manifest.jsonl --frames 8 --hw 128
+#   # 1) make tiny synthetic images + manifest:
+#   python -m caad.data.prepare_images synthetic --n 8 --hw 224 \
+#     --out-dir data/smoke_img --manifest data/smoke_img/manifest.jsonl --styles fog,jpeg
 #
 #   # 2) run the smoke (single GPU):
 #   CFG=configs/train/smoke.yaml ACC=configs/accelerate/single_gpu.yaml bash scripts/train.sh
@@ -28,7 +26,6 @@ model:
   gradient_checkpointing_kwargs:
     use_reentrant: false
   max_pixels: 50176                # 224*224 — small, fast
-  max_frames: 4
 
 lora:
   enabled: true
@@ -63,7 +60,7 @@ train:
 
 rollout:
   backend: mock                    # canned completions — no vLLM, no GPU rollout
-  mock_text: "Let me reason step by step. The answer is 0."
+  mock_text: "Let me reason step by step. The answer is A."
   sync_every: 0
   num_generations: 1
   temperature: 1.0
@@ -74,13 +71,13 @@ rollout:
 eval:
   do_eval: false
   eval_steps: 0
-  manifest: data/smoke/manifest.jsonl
+  manifest: data/smoke_img/manifest.jsonl
   samples: 8
 
 data:
-  manifest: data/smoke/manifest.jsonl
-  video_root: null
-  system_prompt: "You are a careful video question-answering assistant."
+  manifest: data/smoke_img/manifest.jsonl
+  image_root: null
+  system_prompt: "You are a careful visual question-answering assistant."
 
 wandb:
   enabled: false

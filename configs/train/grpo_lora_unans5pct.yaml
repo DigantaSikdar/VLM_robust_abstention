@@ -1,0 +1,110 @@
+# LoRA GRPO, 500 steps, system prompt (think_answer) — 5% VizWiz-train unanswerable (gold 'unanswerable') mixed into severity-4 GQA.
+# Every training question carries the VizWiz note ("If the image does not contain enough information
+# to answer, the answer is unanswerable."), so the note is not a giveaway. Otherwise identical to
+# the grpo_s4_sys recipe (LoRA r16, lr 1e-5, 8 rollouts, reward = exact match + 0.1 tags, no KL).
+#   sbatch -p mb-a30 --gres=gpu:a30:2 scripts/slurm/train_caad_2gpu.sbatch configs/train/grpo_lora_unans5pct.yaml
+caad:
+  anchor_beta: 0.0
+  chunk_size: 64
+  ema_decay: 0.999
+  eopd:
+    base: rkl
+    clip_eps: 0.2
+    diagnostics: true
+    topk: 16
+  fkl_gate: low_quantile
+  fkl_quantile: 0.0
+  fkl_tau: 0.8
+  fkl_tau_low: 0.2
+  jsd_beta: 0.5
+  lambda_l2: 0.0
+  loss: eopd
+  min_tokens_for_quantile: 24
+data:
+  image_root: null
+  manifest: /gscratch/dsikdar/caad_data/gqa_s4_vizwiz_unans5pct/manifest.jsonl
+  prompt_format: think_answer
+  system_prompt: null
+deterministic: false
+eval:
+  do_eval: false
+  eval_steps: 0
+grpo:
+  clip_eps: 0.2
+  format_reward: 0.1
+  std_normalize: true
+hub:
+  enabled: false
+  model_id: ''
+  private: true
+  push_every_n_steps: 0
+log_level: info
+lora:
+  alpha: 32
+  dropout: 0.0
+  enabled: true
+  r: 16
+  target_modules:
+  - q_proj
+  - k_proj
+  - v_proj
+  - o_proj
+  - gate_proj
+  - up_proj
+  - down_proj
+method: grpo
+model:
+  attn_implementation: sdpa
+  dtype: bfloat16
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null
+  name: Qwen/Qwen3-VL-4B-Instruct
+output_dir: /gscratch/dsikdar/outputs/grpo_lora_unans5pct
+rollout:
+  backend: vllm
+  max_completion_length: 512
+  num_generations: 8
+  server:
+    adapter_dir: /gscratch/dsikdar/outputs/grpo_lora_unans5pct/_vllm_adapters
+    gpu: 0
+    gpu_mem_util: 0.85
+    host: 127.0.0.1
+    max_lora_rank: 16
+    port: 8000
+    startup_timeout: 900
+  sync_every: 10
+  sync_mode: lora
+  temperature: 1.0
+  top_p: 1.0
+seed: 0
+train:
+  ema_every: 1
+  gradient_accumulation_steps: 8
+  learning_rate: 1.0e-05
+  logging_first_step: true
+  logging_steps: 1
+  lr_scheduler_type: cosine
+  max_grad_norm: 1.0
+  max_steps: 500
+  num_train_epochs: 1
+  per_device_train_batch_size: 1
+  save_steps: 250
+  save_total_limit: 0
+  warmup_ratio: 0.1
+wandb:
+  config: null
+  enabled: true
+  entity: null
+  log_completions: true
+  project: caad
+  rollout_table_every: 50
+  run_name: grpo_lora_unans5pct
+  tags:
+  - grpo
+  - lora-r16
+  - system-prompt
+  - 500steps
+  - vizwiz-note-all
+  - unans5pct

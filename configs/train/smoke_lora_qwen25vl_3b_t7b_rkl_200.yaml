@@ -1,0 +1,104 @@
+# Qwen2.5-VL-3B LoRA smoke (RKL, Qwen2.5-VL-7B teacher): 200 steps, think_answer prompt.
+# LoRA targets only the language model: the Qwen2.5-VL vision blocks also have gate/up/down_proj.
+method: caad
+seed: 0
+deterministic: false
+log_level: info
+output_dir: /gscratch/dsikdar/outputs/smoke_lora_qwen25vl_3b_t7b_rkl_200
+model:
+  name: Qwen/Qwen2.5-VL-3B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null
+teacher:
+  name: Qwen/Qwen2.5-VL-7B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  device: cuda:1
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: .*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$
+caad:
+  loss: eopd
+  eopd:
+    base: rkl
+    topk: 16
+    clip_eps: 0.2
+    diagnostics: true
+  fkl_gate: low_quantile
+  fkl_tau: 0.8
+  fkl_quantile: 0.0
+  fkl_tau_low: 0.2
+  min_tokens_for_quantile: 24
+  jsd_beta: 0.5
+  lambda_l2: 0.0
+  anchor_beta: 0.0
+  ema_decay: 0.999
+  chunk_size: 64
+train:
+  learning_rate: 1.0e-05
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_steps: 200
+  num_train_epochs: 1
+  ema_every: 1
+  save_steps: 100
+  save_total_limit: 0
+  logging_steps: 1
+  logging_first_step: true
+rollout:
+  backend: vllm
+  sync_mode: lora
+  sync_every: 10
+  num_generations: 2
+  temperature: 1.0
+  top_p: 1.0
+  max_completion_length: 512
+  server:
+    host: 127.0.0.1
+    port: 8000
+    gpu: 0
+    startup_timeout: 900
+    max_lora_rank: 16
+    adapter_dir: /gscratch/dsikdar/outputs/smoke_lora_qwen25vl_3b_t7b_rkl_200/_vllm_adapters
+eval:
+  do_eval: false
+  eval_steps: 0
+data:
+  manifest: /gscratch/dsikdar/caad_data/gqa_train_30k_s4/manifest.jsonl
+  image_root: null
+  prompt_format: think_answer
+  system_prompt: null
+wandb:
+  enabled: false
+  project: caad
+  entity: null
+  run_name: smoke_lora_qwen25vl_3b_t7b_rkl_200
+  tags:
+  - 8b-teacher
+  - rkl
+  - qwen2.5-vl-3b
+  - gqa30k
+  - severity4
+  - 1epoch
+  - system-prompt
+  - lora-r16
+  - 200steps
+  - smoke
+  log_completions: true
+  rollout_table_every: 50
+  config: null
+hub:
+  enabled: false
+  model_id: ''
+  private: true
+  push_every_n_steps: 0

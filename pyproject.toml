@@ -5,13 +5,12 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "caad"
 version = "0.1.0"
-description = "Corruption-Aware Adaptive Distillation for video VLMs (self-distillation RL)"
+description = "Corruption-Aware Adaptive Distillation for image VLMs (self-distillation RL)"
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "MIT" }
-# Base deps are kept aarch64-friendly (Clariden GH200): no decord (qwen-vl-utils
-# falls back to torchvision, which ships with the uenv torch) and no deepspeed
-# (multi-GPU only). torch comes from the uenv — a --system-site-packages venv
+# Base deps are kept aarch64-friendly (Clariden GH200): no deepspeed (multi-GPU
+# only). torch comes from the uenv — a --system-site-packages venv
 # satisfies `torch` without reinstalling. Heavy/arch-specific bits are extras.
 dependencies = [
     "torch>=2.4",
@@ -20,6 +19,7 @@ dependencies = [
     "peft>=0.13",
     "qwen-vl-utils",
     "opencv-python-headless>=4.9",
+    "pillow>=10",               # image manifests (caad.data.prepare_images)
     "numpy>=1.26",
     "pyyaml>=6.0",
 ]
@@ -27,9 +27,10 @@ dependencies = [
 [project.optional-dependencies]
 rollout = ["vllm>=0.6.3"]                    # vLLM generation worker (GPU 0)
 deepspeed = ["deepspeed>=0.16"]              # multi-GPU ZeRO-2/3 training
-data = ["pandas>=2.0", "pyarrow>=14",        # dataset prep (read MCQ.parquet)
+data = ["pandas>=2.0", "pyarrow>=14",        # dataset prep (read parquet dumps)
         "huggingface_hub[cli,hf_transfer]>=0.24"]   # download + the `hf` CLI
-decord = ["decord"]                          # alt video backend (x86 mainly; ARM uses torchvision)
+eval = ["imagecorruptions>=1.1.2",            # ImageNet-C (TextVQA-C / GQA-C), caad.data.imagenet_c
+        "scikit-image", "scipy", "setuptools<81"]  # imagecorruptions imports pkg_resources (removed in 81)
 viz = ["matplotlib>=3.8"]
 logging = ["wandb>=0.17"]
 dev = ["pytest>=8.0", "ruff>=0.6"]

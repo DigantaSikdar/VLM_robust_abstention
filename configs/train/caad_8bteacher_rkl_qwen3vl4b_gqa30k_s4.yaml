@@ -1,0 +1,115 @@
+# =============================================================================
+# CAAD with a STRONG FROZEN TEACHER — student Qwen3-VL-4B-Instruct (LoRA r16)
+# sees the CORRUPTED image; teacher Qwen3-VL-8B-Instruct (frozen, no EMA) sees
+# the CLEAN image and scores the student's rollout tokens.
+# Base loss: reverse KL on every token (EOPD-style clipped policy gradient).
+# Forward-KL gate chosen per run (default here: OFF). Severity-4 GQA data.
+# 1000 optimizer steps, 10% warmup, cosine to 0.
+#   sbatch -p mb-a6000 scripts/slurm/train_caad_2gpu.sbatch \
+#     configs/train/caad_8bteacher_rkl_qwen3vl4b_gqa30k_s4.yaml [caad.fkl_gate=... ]
+# =============================================================================
+method: caad
+seed: 0
+deterministic: false
+log_level: info
+
+output_dir: /gscratch/dsikdar/outputs/caad_8bteacher_rkl_qwen3vl4b_gqa30k_s4
+
+model:
+  name: Qwen/Qwen3-VL-4B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null                 # processor default, same as the TextVQA-C / GQA-C eval
+
+teacher:                           # separate frozen teacher (replaces the EMA teacher adapter)
+  name: Qwen/Qwen3-VL-8B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+
+lora:                              # student adapter (trainable); no teacher adapter with an external teacher
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj",
+                   "gate_proj", "up_proj", "down_proj"]   # language model only
+
+caad:
+  loss: eopd                       # jsd | eopd
+  eopd:
+    base: rkl                      # base term on every token: jsd | rkl (EOPD's clipped reverse KL)
+    topk: 16                       # forward KL over the teacher's top-16 (renormalized)
+    clip_eps: 0.2                  # only used by base: rkl
+    diagnostics: true              # also log forward KL on low-10% / high-10% / H>0.8 / all tokens
+  fkl_gate: low_quantile           # low_quantile | high_quantile | high_threshold | low_threshold |
+                                   # low_or_high_threshold | abs_gap_threshold  (q=0 below -> OFF)
+  fkl_tau: 0.8                     # high_threshold: forward KL where teacher entropy > tau (EOPD)
+  fkl_quantile: 0.0                # used by the *_quantile gates; 0 = no forward KL
+  fkl_tau_low: 0.2                 # low_threshold / low_or_high_threshold
+  min_tokens_for_quantile: 24
+  jsd_beta: 0.5                    # JSD mixture weight for the base term
+  lambda_l2: 0.0                   # visual L2 OFF
+  anchor_beta: 0.0                 # anchor KL OFF
+  ema_decay: 0.999                 # unused with an external teacher
+  chunk_size: 64
+
+train:
+  learning_rate: 1.0e-5
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_steps: 1000                  # schedule (warmup + cosine) spans exactly these steps
+  num_train_epochs: 1
+  ema_every: 1
+  save_steps: 500
+  save_total_limit: 0
+  logging_steps: 1
+  logging_first_step: true
+
+rollout:
+  backend: vllm
+  sync_mode: lora
+  sync_every: 10                   # push the student adapter to vLLM every 10 optimizer steps
+  num_generations: 2
+  temperature: 1.0
+  top_p: 1.0
+  max_completion_length: 512
+  server:
+    host: 127.0.0.1
+    port: 8000                     # the job script overrides this per job
+    gpu: 0
+    gpu_mem_util: 0.85
+    max_lora_rank: 16
+    startup_timeout: 900
+    adapter_dir: /gscratch/dsikdar/outputs/caad_8bteacher_rkl_qwen3vl4b_gqa30k_s4/_vllm_adapters
+
+eval:
+  do_eval: false
+  eval_steps: 0
+
+data:
+  manifest: /gscratch/dsikdar/caad_data/gqa_train_30k_s4/manifest.jsonl
+  image_root: null
+  prompt_format: inline            # same prompt as the evaluation (reason, then <answer>)
+  system_prompt: null
+
+wandb:
+  enabled: true
+  project: caad
+  entity: null
+  run_name: caad-8bteacher-rkl-s4
+  tags: [8b-teacher, rkl, qwen3-vl-4b, lora-r16, gqa30k, severity4, 1000steps]
+  log_completions: true
+  rollout_table_every: 50          # W&B table of sample rollouts (with images) every 50 steps
+  config: null                     # null -> log the full resolved recipe
+
+hub:
+  enabled: false
+  model_id: ""
+  private: true
+  push_every_n_steps: 0

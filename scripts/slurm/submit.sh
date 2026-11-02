@@ -46,7 +46,7 @@ export WANDB_PROJECT="${WANDB_PROJECT:-caad}"
 MODE="${MODE:-lora}"
 NUM_GPUS="${NUM_GPUS:-${SLURM_GPUS_ON_NODE:-4}}"   # total GPUs (GPU 0 = server)
 CFG="${CFG:-configs/train/caad_lora_qwen25vl7b_rl.yaml}"
-DATA="${DATA:-data/videor1/train_manifest.jsonl}"
+DATA="${DATA:-data/img_train_manifest.jsonl}"
 if [ "$MODE" = "full" ]; then
   ACC="${ACC:-configs/accelerate/zero3.yaml}"
   EXTRA="lora.enabled=false rollout.sync_mode=full ${EXTRA:-}"

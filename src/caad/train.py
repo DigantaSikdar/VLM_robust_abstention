@@ -17,12 +17,13 @@ import argparse
 
 from .trainers.base import TrainLoop
 from .trainers.caad import CAADTrainer
+from .trainers.grpo import GRPOTrainer
 from .utils.config import freeze_config, load_config
 from .utils.logging import MetricsLogger, run_dir, setup_logging
 from .utils.seeding import seed_everything
 
 # method -> trainer class. Add a variant here, select it via the recipe's `method`.
-TRAINERS = {"caad": CAADTrainer}
+TRAINERS = {"caad": CAADTrainer, "grpo": GRPOTrainer}
 
 
 def parse_args():
@@ -80,33 +81,103 @@ def main():
     from torch.optim import AdamW
     from torch.utils.data import DataLoader
 
-    from .data.dataset import VideoManifestDataset
-    from .models.model_utils import load_base_model
+    from .data.dataset import ManifestDataset
+    from .models.model_utils import external_teacher, load_base_model, load_teacher
     from .rollout import RolloutEngine  # vLLM wrapper; see module docstring
 
     acc = Accelerator(gradient_accumulation_steps=cfg["train"]["gradient_accumulation_steps"])
     model, processor = load_base_model(cfg)
+    if cfg["lora"].get("init_student_from"):
+        # start the student adapter from a saved one (e.g. the SFT cold start)
+        from .models.model_utils import load_student_init
+        load_student_init(model, cfg["lora"]["init_student_from"])
+        log.info("student adapter initialized from %s", cfg["lora"]["init_student_from"])
     if cfg["model"].get("gradient_checkpointing"):
         model.gradient_checkpointing_enable(
             gradient_checkpointing_kwargs=cfg["model"].get(
                 "gradient_checkpointing_kwargs", {"use_reentrant": False}))
-    dataset = VideoManifestDataset(cfg["data"]["manifest"],
-                                   video_root=cfg["data"].get("video_root"))
-    loader = DataLoader(dataset, batch_size=1, shuffle=True,
-                        collate_fn=lambda b: b[0])
-    opt = AdamW((p for p in model.parameters() if p.requires_grad),
-                lr=cfg["train"]["learning_rate"])
+        # HF only checkpoints in train mode; from_pretrained returns eval mode.
+        # Dropout is 0 for Qwen3-VL and the LoRA adapters, so this changes memory
+        # use only, not the computation.
+        model.train()
+    dataset = ManifestDataset(cfg["data"]["manifest"],
+                              image_root=cfg["data"].get("image_root"))
+    import torch
+    loader = DataLoader(dataset, batch_size=1, shuffle=True, collate_fn=lambda b: b[0],
+                        generator=torch.Generator().manual_seed(cfg["seed"]))
+    own_opt = cfg["train"].get("optimizer", "adamw") == "bf16_adamw"
+    if own_opt:
+        # full FT: fp32 grads/moments, stochastic rounding. Built on the training
+        # device and NOT passed through acc.prepare: AcceleratedOptimizer reloads the
+        # state dict, which copies every state buffer and casts it to the param dtype
+        # (bf16), i.e. doubles the optimizer memory and drops its fp32 precision.
+        from .utils.optim import BF16AdamW
+        model.to(acc.device)
+        opt = BF16AdamW([p for p in model.parameters() if p.requires_grad],
+                        lr=cfg["train"]["learning_rate"],
+                        weight_decay=cfg["train"].get("weight_decay", 0.01))
+    else:
+        opt = AdamW((p for p in model.parameters() if p.requires_grad),
+                    lr=cfg["train"]["learning_rate"])
     sched = _build_scheduler(opt, cfg, _total_optimizer_steps(cfg, len(dataset)))
-    model, opt, loader = acc.prepare(model, opt, loader)
+    resume = cfg["train"].get("resume_step", 0)
+    if resume:
+        # continue a run from its step-`resume` checkpoint (model.name): replay the seeded
+        # shuffle, drop the samples the first `resume` optimizer steps consumed, and move the
+        # LR schedule to step `resume`. The optimizer moments start fresh (checkpoints hold
+        # weights only).
+        import warnings
+        from torch.utils.data import Subset
+        accum = cfg["train"].get("per_device_train_batch_size", 1) * cfg["train"]["gradient_accumulation_steps"]
+        # replay the original run's loader exactly (accelerate-prepared, seeded); a bare
+        # RandomSampler with the same seed gives a different order
+        index = {r["question_id"]: i for i, r in enumerate(dataset.rows)}
+        order = [index[x["question_id"]] for x in acc.prepare(DataLoader(
+            dataset, batch_size=1, shuffle=True, collate_fn=lambda b: b[0],
+            generator=torch.Generator().manual_seed(cfg["seed"])))]
+        loader = DataLoader(Subset(dataset, order[resume * accum:]), batch_size=1, shuffle=False,
+                            collate_fn=lambda b: b[0])
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")              # "scheduler.step() before optimizer.step()"
+            for _ in range(resume):
+                sched.step()
+        log.info("resuming at step %d from %s: skipped %d seen samples, %d remain, lr %.3e",
+                 resume, cfg["model"]["name"], resume * accum, len(order) - resume * accum,
+                 sched.get_last_lr()[0])
+    if own_opt:
+        model, loader = acc.prepare(model, loader)
+    else:
+        model, opt, loader = acc.prepare(model, opt, loader)
 
     if cfg["method"] not in TRAINERS:
         raise SystemExit(f"unknown method '{cfg['method']}'; known: {sorted(TRAINERS)}")
-    trainer = TRAINERS[cfg["method"]](model, processor, cfg, acc)
+    teacher = None
+    if external_teacher(cfg):
+        teacher = load_teacher(cfg, cfg["teacher"].get("device") or acc.device)
+        log.info("external frozen teacher: %s (%.2fB params)", cfg["teacher"]["name"],
+                 sum(p.numel() for p in teacher.parameters()) / 1e9)
+    ref = None
+    g = cfg.get("grpo") or {}
+    if cfg["method"] == "grpo" and g.get("kl_beta", 0) > 0:
+        # frozen copy of the starting policy for GRPO's KL penalty (same loader as a teacher)
+        ref_name = g.get("ref_model") or cfg["model"]["name"]    # set when resuming from a checkpoint
+        ref = load_teacher({"teacher": {"name": ref_name, "dtype": cfg["model"].get("dtype", "bfloat16"),
+                                        "attn_implementation": cfg["model"].get("attn_implementation", "sdpa")}},
+                           g.get("ref_device") or acc.device)
+        log.info("GRPO KL reference: frozen %s on %s, beta=%g", ref_name,
+                 g.get("ref_device") or acc.device, g["kl_beta"])
+    trainer = TRAINERS[cfg["method"]](model, processor, cfg, acc, frozen_teacher=teacher, frozen_init=ref)
     rollout = RolloutEngine(cfg, processor, model=model)
-    metrics = MetricsLogger(path, wandb_cfg=cfg.get("wandb"))
+    metrics = MetricsLogger(path, wandb_cfg=cfg.get("wandb"), full_config=cfg)
 
     loop = TrainLoop(trainer, rollout, loader, opt, acc, cfg, path,
                      scheduler=sched, metrics_logger=metrics)
+    loop.total_steps = _total_optimizer_steps(cfg, len(dataset))
+    loop.start_step = resume
+    n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    dtypes = sorted({str(p.dtype) for p in model.parameters() if p.requires_grad})
+    log.info("dataset=%d samples  total_optimizer_steps=%d  trainable_params=%.2fM %s",
+             len(dataset), loop.total_steps, n_train / 1e6, dtypes)
     try:
         loop.run()
     finally:

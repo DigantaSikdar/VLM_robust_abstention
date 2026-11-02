@@ -4,8 +4,8 @@
 #   RUN=outputs/qwen25vl7b_caad_klcov05_20260614 GPUS=0,1,2,3 bash scripts/eval.sh
 set -euo pipefail
 
-RUN="${RUN:?set RUN=<output_dir> (the recipe's output_dir)}"
-SUITE="${SUITE:-configs/eval/video_suite.yaml}"
+RUN="${RUN:?set RUN=<output_dir> (the recipe output_dir)}"
+SUITE="${SUITE:-configs/eval/image_suite.yaml}"
 GPUS="${GPUS:-0}"
 
 echo ">> eval  run=$RUN  suite=$SUITE  gpus=$GPUS"

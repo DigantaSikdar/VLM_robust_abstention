@@ -1,0 +1,98 @@
+# InternVL3.5-4B LoRA GRPO smoke with the reasoning requirement: a response is well-formed only with
+# >= 15 words before <answer> (the 500-step run without it collapsed to bare answers). 200 steps.
+method: grpo
+grpo:
+  format_reward: 0.1
+  clip_eps: 0.2
+  std_normalize: true
+  strict_reward: true
+  answer_format: tags
+  kl_beta: 0.04
+  ref_device: cuda:1
+  min_reasoning_words: 15
+seed: 0
+deterministic: false
+log_level: info
+output_dir: /gscratch/dsikdar/outputs/smoke_lora_internvl35_4b_grpo_reason15_200
+model:
+  name: OpenGVLab/InternVL3_5-4B-HF
+  dtype: bfloat16
+  attn_implementation: sdpa
+  gradient_checkpointing: true
+  gradient_checkpointing_kwargs:
+    use_reentrant: false
+  max_pixels: null
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: .*language_model.*\.(q_proj|k_proj|v_proj|o_proj|gate_proj|up_proj|down_proj)$
+caad:
+  chunk_size: 64
+train:
+  learning_rate: 1.0e-05
+  lr_scheduler_type: cosine
+  warmup_ratio: 0.1
+  max_grad_norm: 1.0
+  per_device_train_batch_size: 1
+  gradient_accumulation_steps: 8
+  max_steps: 200
+  num_train_epochs: 1
+  ema_every: 1
+  save_steps: 100
+  save_total_limit: 0
+  logging_steps: 1
+  logging_first_step: true
+rollout:
+  backend: vllm
+  sync_mode: lora
+  sync_every: 10
+  num_generations: 8
+  temperature: 1.0
+  top_p: 1.0
+  max_completion_length: 512
+  stop:
+  - </answer>
+  server:
+    host: 127.0.0.1
+    port: 8000
+    gpu: 0
+    startup_timeout: 900
+    max_lora_rank: 16
+    adapter_dir: /gscratch/dsikdar/outputs/smoke_lora_internvl35_4b_grpo_reason15_200/_vllm_adapters
+eval:
+  do_eval: false
+  eval_steps: 0
+data:
+  manifest: /gscratch/dsikdar/caad_data/gqa_train_30k_s4/manifest.jsonl
+  image_root: null
+  prompt_format: think_answer
+  system_prompt: null
+wandb:
+  enabled: false
+  project: caad
+  entity: null
+  run_name: smoke_lora_internvl35_4b_grpo_reason15_200
+  tags:
+  - grpo
+  - strict-reward
+  - kl0.04
+  - stop-answer
+  - internvl3.5-4b
+  - gqa30k
+  - severity4
+  - 1epoch
+  - system-prompt
+  - lora-r16
+  - 200steps
+  - smoke
+  - min-reasoning-15
+  log_completions: true
+  rollout_table_every: 50
+  config: null
+hub:
+  enabled: false
+  model_id: ''
+  private: true
+  push_every_n_steps: 0

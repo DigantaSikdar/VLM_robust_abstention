@@ -1,0 +1,12 @@
+# configs/eval/image_suite.yaml
+# Image eval suite (caad.eval.orchestrate). Points at a manifest built by
+# python -m caad.data.prepare_images. Run it twice — use_corrupted false/true —
+# to get the clean vs corrupted (robustness) accuracy for a checkpoint.
+manifest: data/img_eval_manifest.jsonl
+use_corrupted: false        # true -> evaluate on the corrupted image
+
+tasks:
+  - name: image_mcq
+    k: 1                     # MCQ: greedy pass@1
+  - name: image_mcq
+    k: 5                     # for pass@k / maj@k

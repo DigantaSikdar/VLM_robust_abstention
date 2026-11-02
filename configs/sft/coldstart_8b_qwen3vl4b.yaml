@@ -1,0 +1,47 @@
+# =============================================================================
+# Off-policy cold start (Li et al. 2026, Sec. 5.1) before 8B-teacher distillation.
+# Student Qwen3-VL-4B-Instruct (LoRA r16, same adapter as distillation) is
+# fine-tuned on Qwen3-VL-8B-Instruct's answers to 30k GQA train questions that
+# share no question or image with the distillation set. Teacher AND student see
+# the CLEAN image, so this stage closes the style gap and teaches no robustness.
+# Data: python -m caad.data.coldstart {assign,render,generate,filter}
+#   python -m caad.sft --config configs/sft/coldstart_8b_qwen3vl4b.yaml
+# =============================================================================
+method: sft
+seed: 0
+output_dir: /gscratch/dsikdar/outputs/sft_coldstart_8b
+
+model:
+  name: Qwen/Qwen3-VL-4B-Instruct
+  dtype: bfloat16
+  attn_implementation: sdpa
+  max_pixels: null
+
+lora:
+  enabled: true
+  r: 16
+  alpha: 32
+  dropout: 0.0
+  target_modules: ["q_proj", "k_proj", "v_proj", "o_proj",
+                   "gate_proj", "up_proj", "down_proj"]
+
+data:
+  manifest: /gscratch/dsikdar/caad_data/coldstart_gqa30k/sft.jsonl
+  image_view: clean                # clean | corrupted
+  prompt_format: inline            # same prompt as distillation and evaluation
+
+train:
+  learning_rate: 1.0e-4            # LoRA SFT; 10x the distillation LR (adapter-only update)
+  warmup_ratio: 0.03
+  weight_decay: 0.0
+  max_grad_norm: 1.0
+  gradient_accumulation_steps: 16
+  num_train_epochs: 1
+  save_steps: 500
+  logging_steps: 10
+
+wandb:
+  enabled: true
+  project: caad
+  run_name: sft_coldstart_8b
+  tags: [cold-start, sft, clean-image, teacher-8b]

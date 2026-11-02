@@ -4,7 +4,7 @@ SHELL := /bin/bash
 
 CFG  ?= configs/train/caad_lora_qwen25vl7b.yaml
 ACC  ?= configs/accelerate/zero2.yaml
-SUITE ?= configs/eval/video_suite.yaml
+SUITE ?= configs/eval/image_suite.yaml
 GPUS ?= 0
 
 .PHONY: help install train eval smoke plots lint clean

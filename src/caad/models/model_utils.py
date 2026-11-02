@@ -42,33 +42,76 @@ TEACHER = "teacher"
 # --------------------------------------------------------------------------- #
 def load_base_model(cfg):
     """
-    Load the base Qwen2.5-VL model + processor and, in LoRA mode, attach the
-    STUDENT and TEACHER adapters.
+    Load the base Qwen-VL model (2.5-VL or 3-VL, via AutoModelForImageTextToText)
+    + processor and, in LoRA mode, attach the STUDENT and TEACHER adapters.
+    ``model.max_pixels`` caps image resolution when set; null keeps the
+    processor's default (what evaluation uses).
 
     Returns (model, processor). In full-FT mode no adapters are attached and the
     caller is responsible for building frozen teacher / init copies.
     """
-    from transformers import (AutoProcessor,
-                              Qwen2_5_VLForConditionalGeneration)
+    from transformers import AutoModelForImageTextToText, AutoProcessor
 
     m = cfg["model"]
-    model = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+    model = AutoModelForImageTextToText.from_pretrained(
         m["name"],
-        torch_dtype=getattr(torch, m.get("dtype", "bfloat16")),
-        attn_implementation=m.get("attn_implementation", "flash_attention_2"),
+        dtype=getattr(torch, m.get("dtype", "bfloat16")),
+        attn_implementation=m.get("attn_implementation", "sdpa"),
     )
-    processor = AutoProcessor.from_pretrained(
-        m["name"],
-        max_pixels=m["max_pixels"],
-    )
+    proc_kw = {"max_pixels": m["max_pixels"]} if m.get("max_pixels") else {}
+    processor = AutoProcessor.from_pretrained(m["name"], **proc_kw)
 
     if cfg["lora"]["enabled"]:
-        model = attach_adapters(model, cfg["lora"])
+        # an external teacher (cfg["teacher"]) replaces the EMA teacher adapter
+        # an EMA teacher adapter only for self-distillation (not with an external teacher, not for GRPO)
+        model = attach_adapters(model, cfg["lora"],
+                                with_teacher=cfg.get("method", "caad") == "caad" and not external_teacher(cfg))
     return model, processor
 
 
-def attach_adapters(model, lora_cfg):
-    """Attach the STUDENT (trainable) and TEACHER (EMA) LoRA adapters."""
+def external_teacher(cfg) -> bool:
+    return bool((cfg.get("teacher") or {}).get("name"))
+
+
+def load_teacher(cfg, device):
+    """
+    A separate, FROZEN teacher model (e.g. a larger model of the same family),
+    used instead of the EMA teacher adapter. It must share the student's
+    tokenizer, vocabulary, image processor and chat template so that it can
+    score the student's exact tokens.
+    """
+    from transformers import AutoModelForImageTextToText
+    t = cfg["teacher"]
+    teacher = AutoModelForImageTextToText.from_pretrained(
+        t["name"], dtype=getattr(torch, t.get("dtype", "bfloat16")),
+        attn_implementation=t.get("attn_implementation", "sdpa")).to(device).eval()
+    for p in teacher.parameters():
+        p.requires_grad_(False)
+    return teacher
+
+
+def load_student_init(model, adapter_dir):
+    """Load saved adapter weights (a dir holding adapter_model.safetensors, e.g.
+    <sft run>/checkpoints/final/student) into the STUDENT adapter. An EMA teacher
+    adapter, if present, is reset to the same weights so EMA starts from parity."""
+    from pathlib import Path
+    from peft import set_peft_model_state_dict
+    from safetensors.torch import load_file
+    sd = load_file(str(Path(adapter_dir) / "adapter_model.safetensors"))
+    res = set_peft_model_state_dict(model, sd, adapter_name=STUDENT)
+    lora_missing = [k for k in res.missing_keys if "lora_" in k and f".{STUDENT}." in k]
+    if lora_missing or res.unexpected_keys:
+        raise ValueError(f"adapter mismatch: {len(lora_missing)} missing student LoRA keys "
+                         f"(e.g. {lora_missing[:2]}), {len(res.unexpected_keys)} unexpected "
+                         f"(e.g. {res.unexpected_keys[:2]})")
+    if TEACHER in model.peft_config:
+        sync_adapter(model, src=STUDENT, dst=TEACHER, decay=0.0)
+    model.set_adapter(STUDENT)
+
+
+def attach_adapters(model, lora_cfg, with_teacher=True):
+    """Attach the STUDENT (trainable) and, unless an external teacher is used,
+    the TEACHER (EMA) LoRA adapters."""
     from peft import LoraConfig, get_peft_model
 
     peft_cfg = LoraConfig(
@@ -79,10 +122,13 @@ def attach_adapters(model, lora_cfg):
         bias="none",
         task_type="CAUSAL_LM",
     )
-    model = get_peft_model(model, peft_cfg, adapter_name=STUDENT)
-    model.add_adapter(TEACHER, peft_cfg)
-    # Teacher starts as an exact copy of the student so EMA begins from parity.
-    sync_adapter(model, src=STUDENT, dst=TEACHER, decay=0.0)
+    # adapters are kept in float32 on the bf16 base (autocast_adapter_dtype), so
+    # small LR updates are not rounded away by bf16's ~3 significant digits
+    model = get_peft_model(model, peft_cfg, adapter_name=STUDENT, autocast_adapter_dtype=True)
+    if with_teacher:
+        model.add_adapter(TEACHER, peft_cfg, autocast_adapter_dtype=True)
+        # Teacher starts as an exact copy of the student so EMA begins from parity.
+        sync_adapter(model, src=STUDENT, dst=TEACHER, decay=0.0)
     model.set_adapter(STUDENT)
     return model
 
@@ -145,9 +191,10 @@ def sync_adapter(model, src=STUDENT, dst=TEACHER, decay=0.999):
 # --------------------------------------------------------------------------- #
 # Visual features
 # --------------------------------------------------------------------------- #
-def get_visual_features(model, pixel_values_videos, video_grid_thw):
+def get_visual_features(model, pixel_values, grid_thw):
     """
-    Post-merger visual tokens for a video, shape (N, D).
+    Post-merger visual tokens for an image, shape (N, D), from the processor's
+    ``pixel_values`` / ``image_grid_thw``.
 
     These are the features handed to the language model (after the patch-merger
     projection), so the visual-L2 loss aligns the representation the LLM
@@ -167,4 +214,4 @@ def get_visual_features(model, pixel_values_videos, video_grid_thw):
             break
     visual = core.visual
     dtype = next(visual.parameters()).dtype
-    return visual(pixel_values_videos.to(dtype), grid_thw=video_grid_thw)
+    return visual(pixel_values.to(dtype), grid_thw=grid_thw)

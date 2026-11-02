@@ -9,8 +9,8 @@ This file never loops over checkpoints or tasks — orchestrate.py does that. Ke
 the atom dumb and parallelizable.
 
     python -m caad.eval.run_task --checkpoint outputs/<run>/checkpoints/final \
-        --task video_qa --task-config configs/eval/video_suite.yaml \
-        --out outputs/<run>/results/video_qa.json
+        --task image_mcq --task-config configs/eval/image_suite.yaml \
+        --out outputs/<run>/results/image_mcq.json
 """
 
 from __future__ import annotations

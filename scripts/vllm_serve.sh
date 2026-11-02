@@ -25,6 +25,6 @@ exec vllm serve "$MODEL" \
   --port "$PORT" \
   --gpu-memory-utilization "$MEM_UTIL" \
   --enable-lora --max-lora-rank "$MAX_LORA_RANK" \
-  --limit-mm-per-prompt video=1 \
+  --limit-mm-per-prompt image=1 \
   --mm-processor-kwargs "{\"max_pixels\": $MAX_PIXELS}" \
   --trust-remote-code
