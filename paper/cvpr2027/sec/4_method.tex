@@ -1,15 +1,15 @@
 \section{Method}
 \label{sec:method}
 
-Given a base VLM $\pi_0$, we make it robust to corruptions and then locate and repair what
-this does to its abstention, in three steps that follow the two goals of
-\cref{sec:problem}:
+Given a base VLM $\pi_0$, we make it robust to corruptions, locate what this does to its
+abstention, and then repair it, which solves the problem of \cref{sec:problem}, in three
+steps:
 \ding{182}~We fine-tune $\pi_0$ on corrupted images with RKL or GRPO, which gives
 $\pi_\theta$ (\cref{sec:method-ft}).
-\ding{183}~We locate the loss (\cref{eq:diagnose}): a linear probe reads $u$ from the
-last-prompt-token state $h^{(\ell)}_{\pi}$, and a reasoning transplant tests whether
-$\pi_\theta$ drops the refusal in its reasoning or in its answer
-(\cref{sec:method-diagnose}).
+\ding{183}~We locate where abstention is lost, which tells us what an intervention can use:
+a linear probe reads $u$ from the model's hidden state (\cref{eq:diagnose}), and a
+reasoning transplant tests whether $\pi_\theta$ drops the refusal in its reasoning or in
+its answer (\cref{sec:method-diagnose}).
 \ding{184}~We recover abstention (\cref{eq:recover}) with three interventions $g$:
 retraining on an unanswerable mix, a probe switch that turns the probe of
 step~\ding{183} into a refusal rule, and activation steering
@@ -48,8 +48,7 @@ student wrote itself. Reverse KL is mode-seeking: the student concentrates on th
 teacher's dominant continuations rather than covering all of them~\cite{gu2024minillm}. We
 estimate each term from the sampled token, as a policy gradient with advantage
 $A_t = \log \pi_{\mathrm{teach}}(y_t \mid \cdot) - \log \pi_\theta(y_t \mid \cdot)$.
-\TODO{Cite EOPD for this estimator (configs: \texttt{loss: eopd}, \texttt{base: rkl}); state
-whether the Gemma-3-4B run used the exact full-vocabulary KL (\texttt{rkl\_full}).} RKL needs
+RKL needs
 no gold answers, only teacher forward passes.
 
 \paragraph{Group Relative Policy Optimization (GRPO).}
@@ -113,13 +112,22 @@ p_\ell(u = 1 \mid x, q) = \mathrm{sigmoid}\big(w^\top \bar{h} + b\big),
 \label{eq:probe}
 \end{equation}
 one per model and layer, on that model's own states; class balancing offsets the unequal
-class sizes of $\mathcal{C}$. Thus
-$\mathrm{AUROC}_\ell(\pi) \in [0,1]$ in \cref{eq:diagnose} is the AUROC of the logit
-$w^\top \bar{h} + b$ on held-out items, and the same probe fitted on shuffled labels gives
-its chance floor. We say the probe \emph{flags} an input when the logit exceeds $0$. The
-probe reads the state from which the response starts, so a high AUROC together with a low
-$\mathrm{CR}$ means that $\pi_\theta$ encodes that the input is unanswerable when it begins
-to answer.
+class sizes of $\mathcal{C}$. The AUROC of the logit $w^\top \bar{h} + b$ on held-out
+items, $\mathrm{AUROC}_\ell(\pi) \in [0,1]$, measures how well layer $\ell$ of $\pi$ encodes
+$u$; the same probe fitted on shuffled labels gives its chance floor. We say the probe
+\emph{flags} an input when the logit exceeds $0$. Because the probe reads the state from
+which the response starts, it tests whether
+\begin{equation}
+\begin{gathered}
+\mathrm{AUROC}_\ell(\pi_\theta) \approx \mathrm{AUROC}_\ell(\pi_0) \\
+\text{while}\ \
+\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}}) < \mathrm{CR}(\pi_0;\mathcal{D}_{\mathrm{U}}),
+\end{gathered}
+\label{eq:diagnose}
+\end{equation}
+\ie whether $\pi_\theta$ still encodes that the input is unanswerable when it begins to
+answer. If so, the failure is behavioral rather than representational (RQ1), and an
+intervention can use the signal that survives.
 
 \paragraph{Reasoning transplant.}
 A refusal can be lost in the reasoning, which never concludes that the image is

@@ -2,70 +2,45 @@
 \label{sec:problem}
 
 \paragraph{Visual question answering with abstention.}
-An input is an image $x \in \mathbb{R}^{H \times W \times 3}$ and a question $q$, a token
-sequence that also carries the task instruction. A VLM is a policy $\pi$ that generates a
-response $y = (y_1,\dots,y_T) \in \mathcal{V}^T$ of $T$ tokens from the vocabulary
-$\mathcal{V}$, from $\pi(y_t \mid y_{<t}, x, q)$; the prompt asks it to reason and then to
-close with one \texttt{<answer>} block, whose text we write $\mathrm{ans}(y)$. Each item
-carries a label $u \in \{0,1\}$, with $u = 1$ when the image does not support an answer, and
-answerable items carry a set $\mathcal{A}(x,q)$ of annotator answers. A refusal indicator
-$\mathrm{ref}(y) \in \{0,1\}$ is $1$ when $\mathrm{ans}(y)$ contains a refusal phrase
-(\cref{sec:setup}). In \cref{fig:teaser}(a), $x$ is a blurred photograph of a jellybean
-package, $q$ asks for the flavor, $u = 1$, and the GRPO response ends with
-$\mathrm{ans}(y) = $ ``strawberry'', so $\mathrm{ref}(y) = 0$.
-
-\paragraph{Accuracy and abstention metrics.}
-Following selective prediction~\cite{geifman2017selective}, we score answering and
-abstaining separately. With $y$ the greedy response of $\pi$ to $(x,q)$,
+Each item of a dataset $\mathcal{D}$ has an image $x \in \mathbb{R}^{H \times W \times 3}$, a question $q$, and a label $u \in \{0, 1\}$: $u = 0$ if the image shows the answer, and $u = 1$ if it does not (it is too degraded, or withheld). An answerable item has a gold
+answer $a^\star$ and a set $\mathcal{A}(x, q)$ of accepted answers: the annotators'
+answers, or $\{a^\star\}$ on GQA. A VLM is a policy $\pi$ that writes a response
+$y \in \mathcal{V}^T$ of $T$ tokens, $y_t \sim \pi(\cdot \mid y_{<t}, x, q)$, ending in one
+\texttt{<answer>} block; the answer parsed from this block is $\mathrm{ans}(y)$. The refusal
+indicator $\mathrm{ref}(y) \in \{0, 1\}$ is $1$ if $\mathrm{ans}(y)$ contains a refusal
+phrase such as ``unanswerable'' (full list in \cref{sec:setup}). As in selective
+prediction~\cite{geifman2017selective}, we score answering and abstaining separately. With
+$y$ the response from $\pi$ and $\mathbb{E}_{\mathcal{D}}$ the average over a set
+$\mathcal{D}$ of items, the accuracy ($\mathrm{Acc}$; $\uparrow$), correct-refusal rate
+($\mathrm{CR}$; $\uparrow$) and unnecessary-refusal rate ($\mathrm{UR}$; $\downarrow$) are
 \begin{align}
-\mathrm{Acc}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}\textstyle\sum_{\mathcal{D}}
+\mathrm{Acc}(\pi;\mathcal{D}) &= \mathbb{E}_{\mathcal{D}}\,
   \mathds{1}\!\left[\mathrm{ans}(y) \in \mathcal{A}(x,q)\right], \label{eq:acc}\\
-\mathrm{CR}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}
-  \textstyle\sum_{\mathcal{D}} \mathrm{ref}(y) \quad (u = 1 \text{ on } \mathcal{D}), \label{eq:cr}\\
-\mathrm{UR}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}
-  \textstyle\sum_{\mathcal{D}} \mathrm{ref}(y) \quad (u = 0 \text{ on } \mathcal{D}), \label{eq:ur}
+\mathrm{CR}(\pi;\mathcal{D}) &= \mathbb{E}_{\mathcal{D}}\!\left[\mathrm{ref}(y) \mid u = 1\right],
+  \label{eq:cr}\\
+\mathrm{UR}(\pi;\mathcal{D}) &= \mathbb{E}_{\mathcal{D}}\!\left[\mathrm{ref}(y) \mid u = 0\right].
+  \label{eq:ur}
 \end{align}
-are the accuracy, the correct-refusal rate and the unnecessary-refusal rate on a set
-$\mathcal{D}$ of items.
 
 \paragraph{Corruption-robust fine-tuning.}
-A corrupted copy $\tilde{x} \in \mathbb{R}^{H \times W \times 3}$ of $x$ applies one
-corruption type, such as fog, at a severity $s \in \{1,\dots,5\}$. Fine-tuning trains on
-$\mathcal{D}_{\mathrm{train}}$, $N_{\mathrm{train}} = 30{,}000$ GQA items
-$(x, \tilde{x}, q, a^\star)$ with gold answer $a^\star$, using RKL or GRPO
-(\cref{sec:method-ft}); every item has $u = 0$, so $\mathrm{CR}$ never enters the loss.
+VLMs lose accuracy on degraded images~\cite{usama2025analysing}, so a common remedy is to fine-tune them on degraded images. A corrupted image $\tilde{x}$ is $x$ with one corruption applied, such as fog or blur. Robust fine-tuning starts from a base VLM $\pi_0$, trains on a set $\mathcal{D}_{\mathrm{train}}$ of items $(x, \tilde{x}, q, a^\star)$ to raise accuracy on $\tilde{x}$, and returns $\pi_\theta$, the same model with parameters $\theta$. This training is label-preserving: a corrupted image keeps the label of its clean image~\cite{hendrycks2020augmix,liu2023softaug,he2026videoreasoningmodelsready}, even when strong corruption removes the information the label depends on~\cite{liu2023softaug}. Every training item is therefore answerable ($u = 0$), so $\mathrm{CR}$ never enters the training objective.
 
-\vspace{0.4em}
+We evaluate the fine-tuned model on two sets. The answerable set $\mathcal{D}_{\mathrm{A}}$ ($u = 0$) holds questions on clean images, on corrupted copies of them, and on real photographs that still show the answer; $\mathcal{D}_{\mathrm{A}}^{\mathrm{C}} \subset \mathcal{D}_{\mathrm{A}}$ is its corrupted part. The unanswerable set $\mathcal{D}_{\mathrm{U}}$ ($u = 1$) contains real photographs too degraded to answer and questions asked without their images (\cref{sec:setup}). Compared with $\pi_0$, fine-tuning raises accuracy on corrupted images, $\mathrm{Acc}(\pi_\theta;\mathcal{D}_{\mathrm{A}}^{\mathrm{C}})$, but lowers the rate of correct refusals, $\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}})$ (\cref{sec:regression}).
+
+
+% \paragraph{Hidden states and probes.}
+% For a model $\pi$ and decoder layer $\ell$, let $h^{(\ell)}_{\pi}(x,q) \in \mathbb{R}^{d}$
+% be the hidden state at the last prompt token, just before the response begins, where $d$ is
+% the hidden width. A linear probe $(w, b) \in \mathbb{R}^{d} \times \mathbb{R}$ predicts $u$
+% from $h^{(\ell)}_{\pi}$ (\cref{eq:probe}). Its AUROC on held-out items,
+% $\mathrm{AUROC}_\ell(\pi) \in [0,1]$ with $0.5$ at chance, measures how well layer $\ell$
+% of $\pi$ encodes answerability.
+
 \begin{tcolorbox}[enhanced, breakable, colback=probback, colframe=probframe, arc=2mm,
   boxrule=0.8pt, left=5pt, right=5pt, top=4pt, bottom=4pt]
-\textbf{Problem Description.} Let $\pi_0$ be a base VLM and $\pi_\theta$ the same model after
-corruption-robust fine-tuning on $\mathcal{D}_{\mathrm{train}}$, with parameters $\theta$.
-Let $\mathcal{D}_{\mathrm{A}}$ be answerable evaluation items ($u = 0$) on clean and
-corrupted images, with corrupted part $\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}$, and
-$\mathcal{D}_{\mathrm{U}}$ unanswerable items ($u = 1$): real degraded photographs and
-questions asked without their image. For a model $\pi$ and decoder layer $\ell$, let
-$h^{(\ell)}_{\pi}(x,q) \in \mathbb{R}^{d}$ be the residual-stream state at the last prompt
-token, where $d$ is the hidden width. Fine-tuning raises
-$\mathrm{Acc}(\pi_\theta;\mathcal{D}_{\mathrm{A}}^{\mathrm{C}})$ but lowers
-$\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}})$ (\cref{sec:regression}).
-\uline{Our first goal is to locate the loss}: does $\pi_\theta$ still encode answerability?
-With $\mathrm{AUROC}_\ell(\pi)$ the AUROC of a logistic-regression probe
-$(w,b) \in \mathbb{R}^{d} \times \mathbb{R}$ that predicts $u$ from $h^{(\ell)}_{\pi}$
-(\cref{eq:probe}), we test whether
-\begin{equation}
-\begin{gathered}
-\mathrm{AUROC}_\ell(\pi_\theta) \approx \mathrm{AUROC}_\ell(\pi_0) \\
-\text{while}\ \
-\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}}) < \mathrm{CR}(\pi_0;\mathcal{D}_{\mathrm{U}}).
-\end{gathered}
-\label{eq:diagnose}
-\end{equation}
-If so, the loss is behavioral, not representational (RQ1), and we then ask which step drops
-it, the reasoning or the answer (RQ2).
-\uline{Our second goal is to recover abstention without giving up the robustness gains}:
-find an intervention $g$, a retraining recipe or an inference-time rule, with
-$\pi' = g(\pi_\theta)$. Both $\pi_\theta$ and $\pi'$ are evaluated on the same images,
-questions and prompt, with greedy decoding. We seek
+\textbf{Problem Description.} Given the base model $\pi_0$, its fine-tuned version
+$\pi_\theta$, and the evaluation sets $\mathcal{D}_{\mathrm{A}}$ and $\mathcal{D}_{\mathrm{U}}$, \uline{our goal is to recover abstention without giving up the robustness gains}: find an intervention $g$, either retraining $\pi_0$ on modified data or an inference-time rule applied to $\pi_\theta$, whose model $\pi'$, evaluated on the same items, prompt and
+decoding as $\pi_\theta$, solves
 \begin{equation}
 \begin{aligned}
 \max_{g}\ \ & \mathrm{CR}(\pi';\mathcal{D}_{\mathrm{U}}) \\
@@ -75,6 +50,10 @@ questions and prompt, with greedy decoding. We seek
 \end{aligned}
 \label{eq:recover}
 \end{equation}
-where $\Delta_{\mathrm{acc}}$ is the corrupted accuracy, in points, that we accept to give back
-and $\mathrm{UR}_{\max}$ the tolerated rate of unnecessary refusals (RQ3).
+where $\Delta_{\mathrm{acc}}$ is the tolerated loss of corrupted accuracy and
+$\mathrm{UR}_{\max}$ the tolerated unnecessary-refusal rate (RQ3).
 \end{tcolorbox}
+
+Prior work either fine-tunes VLMs for corruption robustness and reports accuracy
+alone~\cite{he2026videoreasoningmodelsready,tang2026robustr1,liu2026roma}, or studies and adds abstention in models as released~\cite{miyai2024upd,zhu2025mohobench,madhusudhan2026knowing,pramono2026trapsbench,he2026knowing,vardi2025clipup}; to our knowledge, recovering abstention after robustness fine-tuning, without losing its gains, has not been posed (\cref{sec:related}). The problem arises wherever a model is fine-tuned on answerable-only data ($u = 0$ throughout $\mathcal{D}_{\mathrm{train}}$) and deployed where unanswerable inputs occur, as in assistive, driving and medical imaging. It is hard for two reasons: the regression is invisible during training and on accuracy benchmarks, since $\mathrm{CR}$ enters neither the training objective nor $\mathrm{Acc}$; and both constraints of \cref{eq:recover} pull against the objective, because a fix that refuses more can give back corrupted accuracy or
+refuse answerable questions.
