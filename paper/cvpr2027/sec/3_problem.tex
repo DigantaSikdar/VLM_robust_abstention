@@ -1,70 +1,80 @@
-\section{Problem statement}
+\section{Preliminaries and Problem Formulation}
 \label{sec:problem}
 
-\paragraph{Inputs and corruptions.}
+\paragraph{Visual question answering with abstention.}
 An input is an image $x \in \mathbb{R}^{H \times W \times 3}$ and a question $q$, a token
-sequence that also carries the task instruction; for example, $x$ is a VizWiz photograph
-of a jellybean package and $q$ asks ``What flavor of jellybeans are in this package?''. A
-corrupted copy $\tilde{x} \in \mathbb{R}^{H \times W \times 3}$ (same size as $x$) applies
-one corruption type, such as fog, at a severity $s \in \{1,\dots,5\}$.
-
-\paragraph{Models and responses.}
-A VLM is a policy $\pi$ that generates a response $y = (y_1,\dots,y_T) \in \mathcal{V}^T$,
-a sequence of $T$ tokens from the vocabulary $\mathcal{V}$, from
-$\pi(y_t \mid y_{<t}, x, q)$. The prompt asks the model to reason and then to close with
-a single \texttt{<answer>} block, whose text we write $\mathrm{ans}(y)$; in
-\cref{fig:teaser}(a), the GRPO response reasons that ``the labels are illegible'' and
-then gives $\mathrm{ans}(y) = $ ``strawberry''. We write $\pi_0$ for the base model (\eg
-Qwen3-VL-4B-Instruct) and $\pi_\theta$ for the same model after corruption-robust
-fine-tuning, with parameters $\theta$.
-
-\paragraph{Answerability and refusals.}
-Each item carries a label $u \in \{0,1\}$, with $u = 1$ when the image does not support an
-answer, as for the jellybean question; answerable items ($u = 0$) carry a set
-$\mathcal{A}(x,q)$ of reference answers from human annotators. A refusal indicator
+sequence that also carries the task instruction. A VLM is a policy $\pi$ that generates a
+response $y = (y_1,\dots,y_T) \in \mathcal{V}^T$ of $T$ tokens from the vocabulary
+$\mathcal{V}$, from $\pi(y_t \mid y_{<t}, x, q)$; the prompt asks it to reason and then to
+close with one \texttt{<answer>} block, whose text we write $\mathrm{ans}(y)$. Each item
+carries a label $u \in \{0,1\}$, with $u = 1$ when the image does not support an answer, and
+answerable items carry a set $\mathcal{A}(x,q)$ of annotator answers. A refusal indicator
 $\mathrm{ref}(y) \in \{0,1\}$ is $1$ when $\mathrm{ans}(y)$ contains a refusal phrase
-(\cref{sec:setup}); the ``strawberry'' response has $\mathrm{ref}(y) = 0$.
+(\cref{sec:setup}). In \cref{fig:teaser}(a), $x$ is a blurred photograph of a jellybean
+package, $q$ asks for the flavor, $u = 1$, and the GRPO response ends with
+$\mathrm{ans}(y) = $ ``strawberry'', so $\mathrm{ref}(y) = 0$.
 
-\paragraph{Data and metrics.}
-Fine-tuning uses $\mathcal{D}_{\mathrm{train}}$, $N_{\mathrm{train}} = 30{,}000$ GQA items
-$(x, \tilde{x}, q, a^\star)$ with gold answer $a^\star$, all answerable. Evaluation uses an
-answerable set $\mathcal{D}_{\mathrm{A}}$ with clean and corrupted images (its corrupted
-part is $\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}$), and an unanswerable set
-$\mathcal{D}_{\mathrm{U}}$ (\cref{sec:setup}). With $y$ the greedy response of $\pi$, we
-measure
+\paragraph{Accuracy and abstention metrics.}
+Following selective prediction~\cite{geifman2017selective}, we score answering and
+abstaining separately. With $y$ the greedy response of $\pi$ to $(x,q)$,
 \begin{align}
 \mathrm{Acc}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}\textstyle\sum_{\mathcal{D}}
   \mathds{1}\!\left[\mathrm{ans}(y) \in \mathcal{A}(x,q)\right], \label{eq:acc}\\
-\mathrm{CR}(\pi;\mathcal{D}_{\mathrm{U}}) &= \tfrac{1}{|\mathcal{D}_{\mathrm{U}}|}
-  \textstyle\sum_{\mathcal{D}_{\mathrm{U}}} \mathrm{ref}(y), \label{eq:cr}\\
-\mathrm{UR}(\pi;\mathcal{D}_{\mathrm{A}}) &= \tfrac{1}{|\mathcal{D}_{\mathrm{A}}|}
-  \textstyle\sum_{\mathcal{D}_{\mathrm{A}}} \mathrm{ref}(y), \label{eq:ur}
+\mathrm{CR}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}
+  \textstyle\sum_{\mathcal{D}} \mathrm{ref}(y) \quad (u = 1 \text{ on } \mathcal{D}), \label{eq:cr}\\
+\mathrm{UR}(\pi;\mathcal{D}) &= \tfrac{1}{|\mathcal{D}|}
+  \textstyle\sum_{\mathcal{D}} \mathrm{ref}(y) \quad (u = 0 \text{ on } \mathcal{D}), \label{eq:ur}
 \end{align}
-the accuracy, the correct-refusal rate and the unnecessary-refusal rate. Corruption-robust
-fine-tuning raises $\mathrm{Acc}$ on $\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}$;
-$\mathrm{CR}$ never enters its loss, because $\mathcal{D}_{\mathrm{train}}$ contains no
-item with $u = 1$. \Cref{sec:regression} shows that $\mathrm{CR}$ falls as a result. The
-problem is to recover it:
+are the accuracy, the correct-refusal rate and the unnecessary-refusal rate on a set
+$\mathcal{D}$ of items.
 
-\vspace{0.3em}
-\noindent\fbox{\begin{minipage}{\dimexpr\columnwidth-2\fboxsep-2\fboxrule\relax}
-\begin{problem}[Recovering abstention]
-\label{prob:recover}
-\textbf{Given} a base model $\pi_0$, a model $\pi_\theta$ fine-tuned from $\pi_0$ on
-$\mathcal{D}_{\mathrm{train}}$, and the sets $\mathcal{D}_{\mathrm{A}}$ and
-$\mathcal{D}_{\mathrm{U}}$, \textbf{find} an intervention $g$ (a retraining recipe or an
-inference-time rule) that yields $\pi' = g(\pi_\theta)$ and
-\begin{align*}
+\paragraph{Corruption-robust fine-tuning.}
+A corrupted copy $\tilde{x} \in \mathbb{R}^{H \times W \times 3}$ of $x$ applies one
+corruption type, such as fog, at a severity $s \in \{1,\dots,5\}$. Fine-tuning trains on
+$\mathcal{D}_{\mathrm{train}}$, $N_{\mathrm{train}} = 30{,}000$ GQA items
+$(x, \tilde{x}, q, a^\star)$ with gold answer $a^\star$, using RKL or GRPO
+(\cref{sec:method-ft}); every item has $u = 0$, so $\mathrm{CR}$ never enters the loss.
+
+\vspace{0.4em}
+\begin{tcolorbox}[enhanced, breakable, colback=probback, colframe=probframe, arc=2mm,
+  boxrule=0.8pt, left=5pt, right=5pt, top=4pt, bottom=4pt]
+\textbf{Problem Description.} Let $\pi_0$ be a base VLM and $\pi_\theta$ the same model after
+corruption-robust fine-tuning on $\mathcal{D}_{\mathrm{train}}$, with parameters $\theta$.
+Let $\mathcal{D}_{\mathrm{A}}$ be answerable evaluation items ($u = 0$) on clean and
+corrupted images, with corrupted part $\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}$, and
+$\mathcal{D}_{\mathrm{U}}$ unanswerable items ($u = 1$): real degraded photographs and
+questions asked without their image. For a model $\pi$ and decoder layer $\ell$, let
+$h^{(\ell)}_{\pi}(x,q) \in \mathbb{R}^{d}$ be the residual-stream state at the last prompt
+token, where $d$ is the hidden width. Fine-tuning raises
+$\mathrm{Acc}(\pi_\theta;\mathcal{D}_{\mathrm{A}}^{\mathrm{C}})$ but lowers
+$\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}})$ (\cref{sec:regression}).
+\uline{Our first goal is to locate the loss}: does $\pi_\theta$ still encode answerability?
+With $\mathrm{AUROC}_\ell(\pi)$ the AUROC of a logistic-regression probe
+$(w,b) \in \mathbb{R}^{d} \times \mathbb{R}$ that predicts $u$ from $h^{(\ell)}_{\pi}$
+(\cref{eq:probe}), we test whether
+\begin{equation}
+\begin{gathered}
+\mathrm{AUROC}_\ell(\pi_\theta) \approx \mathrm{AUROC}_\ell(\pi_0) \\
+\text{while}\ \
+\mathrm{CR}(\pi_\theta;\mathcal{D}_{\mathrm{U}}) < \mathrm{CR}(\pi_0;\mathcal{D}_{\mathrm{U}}).
+\end{gathered}
+\label{eq:diagnose}
+\end{equation}
+If so, the loss is behavioral, not representational (RQ1), and we then ask which step drops
+it, the reasoning or the answer (RQ2).
+\uline{Our second goal is to recover abstention without giving up the robustness gains}:
+find an intervention $g$, a retraining recipe or an inference-time rule, with
+$\pi' = g(\pi_\theta)$. Both $\pi_\theta$ and $\pi'$ are evaluated on the same images,
+questions and prompt, with greedy decoding. We seek
+\begin{equation}
+\begin{aligned}
 \max_{g}\ \ & \mathrm{CR}(\pi';\mathcal{D}_{\mathrm{U}}) \\
 \text{s.t.}\ \ & \mathrm{Acc}(\pi';\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}) \ge
   \mathrm{Acc}(\pi_\theta;\mathcal{D}_{\mathrm{A}}^{\mathrm{C}}) - \Delta_{\mathrm{acc}}, \\
-& \mathrm{UR}(\pi';\mathcal{D}_{\mathrm{A}}) \le \mathrm{UR}_{\max}.
-\end{align*}
-\end{problem}
-\end{minipage}}
-\vspace{0.3em}
-
-Here $\Delta_{\mathrm{acc}}$ is the corrupted accuracy, in points, that we are willing to
-give back, and $\mathrm{UR}_{\max}$ is the tolerated rate of unnecessary refusals;
-\cref{sec:rq3} compares remedies at matched $\mathrm{UR}$. RQ1 and RQ2 ask why
-$\mathrm{CR}(\pi_\theta)$ is low; RQ3 is \cref{prob:recover} itself.
+& \mathrm{UR}(\pi';\mathcal{D}_{\mathrm{A}}) \le \mathrm{UR}_{\max},
+\end{aligned}
+\label{eq:recover}
+\end{equation}
+where $\Delta_{\mathrm{acc}}$ is the corrupted accuracy, in points, that we accept to give back
+and $\mathrm{UR}_{\max}$ the tolerated rate of unnecessary refusals (RQ3).
+\end{tcolorbox}

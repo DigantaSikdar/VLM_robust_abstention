@@ -302,8 +302,10 @@ accuracy columns of \cref{tab:accuracy} would reveal it.
 \subsection{RQ1: Is answerability erased, or only suppressed?}
 \label{sec:rq1}
 
-The answerability probe of \cref{alg:switch} (lines~1--3), fitted at every layer, separates
-answerable from unanswerable VizWiz questions at $\mathrm{AUROC}\approx0.93$ in the base,
+% probe_answerability.py analyze: L2 strength defaults to 0.01 (or 5-fold CV with --cv-*);
+% the switch uses 0.1. State which one the Tab. 5 run used.
+The probe of \cref{eq:probe}, fitted at every layer on the VizWiz-train pool $\mathcal{C}$
+(\cref{sec:setup}), separates answerable from unanswerable VizWiz-val questions at $\mathrm{AUROC}\approx0.93$ in the base,
 RKL and GRPO models of Qwen3-VL-4B, far above the shuffled-label control
 (\cref{tab:probe}): fine-tuning does not erase the representation of answerability. Among
 the unanswerable questions the fine-tuned models wrongly answered, the probe still flags
@@ -351,10 +353,9 @@ GRPO & 56 & 64 & 98 & 100 \\
 \subsection{RQ2: Do the two recipes fail the same way?}
 \label{sec:rq2}
 
-They fail oppositely, and the reasoning transplant (\cref{tab:transplant}) shows it.
-Handed a base ``can't-tell'' chain for a question it had answered, RKL abstains $98.4\%$
-of the time: given the right reasoning it behaves correctly, so its own failure is that it
-never produces that reasoning. Consistently, RKL's responses on these items are far longer
+They fail oppositely (\cref{tab:transplant}). Handed the base model's ``can't-tell''
+chain by the reasoning transplant (\cref{sec:method-diagnose}), RKL refuses $98.4\%$ of the
+time, so its failure is that its own reasoning never reaches that chain. Consistently, RKL's responses on these items are far longer
 than the base model's or GRPO's: on the unanswerable set its median response is $98$
 tokens against $71$ (base) and $77$ (GRPO), and on the subset where it runs long the gap
 widens to $341.5$ tokens against ${\sim}109$ for both others on the same questions
@@ -369,8 +370,8 @@ unanswerability; GRPO reasons there but will not act on it.
 \centering
 \small
 \caption{\textbf{RKL fails on the reasoning side, GRPO on the answer side.} Reasoning
-transplant (Qwen3-VL-4B): share of items that the model refuses when given the base
-model's ``can't-tell'' chain for a question it had answered.}
+transplant (\cref{sec:method-diagnose}, Qwen3-VL-4B): share of items the fine-tuned model
+refuses when given the base model's ``can't-tell'' chain.}
 \label{tab:transplant}
 \begin{tabular}{@{}lcc@{}}
 \toprule

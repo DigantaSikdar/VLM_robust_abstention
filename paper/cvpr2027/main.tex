@@ -22,6 +22,11 @@
 \usepackage{algorithm}
 \usepackage{algpseudocode}
 \algtext*{EndIf}      % no numbered "end if" lines, so line references in the text stay short
+\usepackage[normalem]{ulem}   % \uline for the stated goals in the problem box
+\usepackage[most]{tcolorbox}  % problem-description box (Sec. 3)
+\usepackage{pifont}           % \ding{182}-\ding{184}: circled step numbers (Sec. 4)
+\definecolor{probback}{HTML}{F8F5EF}
+\definecolor{probframe}{HTML}{8B6B4A}
 
 % Inline annotations (\TODO{...} prints in red; disable them in preamble.tex before submission).
 \input{preamble}
@@ -37,9 +42,6 @@
 \crefname{table}{Tab.}{Tabs.}
 \crefname{algorithm}{Alg.}{Algs.}
 \Crefname{algorithm}{Algorithm}{Algorithms}
-\crefname{problem}{Problem}{Problems}
-
-\newtheorem{problem}{Problem}
 
 % Abbreviation macros (guarded: the official cvpr.sty usually defines these,
 % in which case \providecommand is a harmless no-op).
