@@ -1,0 +1,98 @@
+\section{Related Work}
+\label{sec:related}
+
+\paragraph{VLMs and visual question answering.}
+Instruction-tuned VLMs built on strong language backbones are now the default interface
+for image understanding~\cite{qwen3vl2025,wang2025internvl35,gemmateam2025gemma3technicalreport}.
+They are measured on VQA benchmarks targeting compositional reasoning
+(GQA~\cite{hudson2019gqa}), language-prior control (VQAv2~\cite{goyal2017vqav2}), and
+scene-text reading (TextVQA~\cite{singh2019textvqa}). VizWiz~\cite{gurari2018vizwiz} is
+unique for our purpose: its images are taken by blind users, are frequently unreadable,
+and a large share of its questions cannot be answered, making it the natural testbed for
+abstention under real-world degradation. We use these benchmarks differently from the
+accuracy-only protocol they are usually reported with: every accuracy number is paired
+with an abstention measurement, refusals on VizWiz's unanswerable questions and on copies
+of the other three benchmarks with the image withheld, because accuracy alone hides the
+regression we study.
+
+\paragraph{Corruption robustness for VLMs.}
+ImageNet-C~\cite{hendrycks2019imagenetc} established common corruptions---noise, blur,
+weather and digital artifacts at graded severity---as the standard average-case
+robustness benchmark, distinct from worst-case adversarial robustness. The behavior of
+VLMs under these corruptions has only recently been quantified:
+Usama~\etal~\cite{usama2025analysing} apply the $19$ ImageNet-C corruptions at five
+severities to TextVQA and GQA, finding that VQA accuracy degrades substantially and
+unevenly across corruption families. We adopt their corrupted-VQA evaluation protocol but
+depart from it in two ways that make our robustness claims stronger: we \emph{train} for
+robustness rather than only measuring it, and we train with a different corruption
+engine, so that $11$ of the $19$ evaluation corruption types are never seen in training
+and the measured gains reflect generalization rather than memorized pixel statistics.
+
+\paragraph{Distillation and RL for adaptation, and their side effects.}
+Knowledge distillation~\cite{hinton2015distilling} transfers a teacher's behavior to a
+student; for generative models, MiniLLM~\cite{gu2024minillm} argues for reverse rather
+than forward KL. Our distillation is on-policy reverse-KL with a clean-image teacher and a
+corrupted-image student (\cref{sec:method-ft}). On the RL side,
+GRPO~\cite{shao2024deepseekmath} replaces PPO's value network~\cite{schulman2017ppo} with
+group-relative advantages from sampled rollouts, and is a common recipe for
+verifiable-reward fine-tuning; LoRA~\cite{hu2022lora} is a standard efficient variant of
+both. Neither recipe is side-effect free. Fine-tuning is now known to degrade
+capabilities it never targets: benign fine-tuning erodes safety
+alignment~\cite{qi2024finetuning}, and continual adaptation induces catastrophic
+forgetting~\cite{luo2023empirical}. Reward-based training additionally invites shortcut
+behavior, where the policy satisfies the reward through a spurious regularity rather than
+the intended competence. Our GRPO result is a clean, causally demonstrated instance of
+such a shortcut---\emph{always answer}---surfacing specifically in the abstention setting,
+where the reward is defined only over answerable inputs.
+
+\paragraph{Visual abstention and the representation--output gap.}
+Knowing when not to answer is central to reliability~\cite{geifman2017selective}, and the
+problem is acute for VLMs, which readily produce confident answers to unanswerable or
+image-free prompts. In language, SQuAD~2.0~\cite{rajpurkar2018squad2} and
+AbstentionBench~\cite{kirichenko2025abstentionbench} formalize unanswerable questions. On
+the multimodal side a cluster of benchmarks now measures the failure directly: UPD
+dissects it into absent-answer, incompatible-answer-set and incompatible-question
+settings~\cite{miyai2024upd}; MoHoBench frames it as honesty and reports that most of $28$
+models tested fail to refuse when they should~\cite{zhu2025mohobench};
+VisionTrap~\cite{saadat2025visiontrap} and MM-AQA~\cite{madhusudhan2026knowing} construct
+unanswerable instances from answerable ones and reach the same verdict, with MM-AQA
+arguing that the bottleneck is miscalibration and that abstention-aware \emph{training},
+not better prompting, is what is required. A complementary line adds the ability at low
+cost: selective-prediction methods estimate answer reliability from black-box
+consistency~\cite{khan2024consistency} or temper over-abstention~\cite{srinivasan2024recoverr},
+and CLIP-UP~\cite{vardi2025clipup} attaches a light unanswerability head without
+touching the backbone weights.
+
+Most directly related to us are two concurrent works that locate the failure inside the
+model. TRAPSBench~\cite{pramono2026trapsbench} studies physical-reasoning videos and
+reports a \emph{representation--output gap}: across $16$ VLMs spontaneous restraint is
+poor (best penalized calibration score $0.292$), yet linear probes decode answerability
+from hidden states at up to $0.91$ AUROC and a single-layer steering direction causally
+induces or suppresses abstention; tellingly, textual impossibility is detected about
+$4\times$ more readily than missing visual evidence. He~\etal~\cite{he2026knowing} reach
+the same diagnosis on static images---probe-decodable answerability that final responses
+ignore, with spontaneous abstention recall near $11$--$16\%$---and close the gap with
+Rep2Act, which aligns the model's representations with its abstention decisions.
+CertainlyUncertain~\cite{chandu2025certainly} similarly pairs answerable and unanswerable
+inputs to measure calibrated awareness.
+
+All of this work characterizes---or repairs---the gap in a \emph{fixed} model. We show
+instead that the gap is a \emph{moving target}: fine-tuning for corruption robustness
+widens it, through an objective-specific mechanism (reasoning-side for RKL, answer-side for
+GRPO) that standard accuracy benchmarks cannot see. Our probe switch is closest in form to
+CLIP-UP: it too adds a light classifier and leaves the backbone weights unchanged. It
+differs in what it reads and why: the probe is fitted to each fine-tuned model's own
+residual stream, and it serves first as a diagnostic, showing that robust fine-tuning
+suppresses answerability rather than erasing it (RQ1). Unlike Rep2Act, the switch changes
+no weights at all.
+
+\paragraph{Activation steering.}
+Activation- and representation-engineering methods edit internal activations at inference
+time to modulate a target behavior. Contrastive Activation Addition
+(CAA)~\cite{rimsky2024caa} forms a steering vector from the mean difference of
+residual-stream activations over positive/negative pairs and adds it during generation,
+on top of fine-tuning rather than undoing it~\cite{turner2023actadd,li2023iti}; refusal
+and other high-level behaviors are often mediated by a single such
+direction~\cite{arditi2024refusal}. We build contrastive vectors from base-vs-trained
+response pairs to push a fine-tuned model back toward the base model's abstention, and add
+an entropy-gated variant matched to RKL's reasoning-side failure.

@@ -1,0 +1,28 @@
+%%%%%%%%% ABSTRACT
+% Review note (claims vs. tables, not yet resolved): "two ways" (the paper has three remedies),
+% "at no cost to the corruption gains" (the probe switch costs 0.4--7.1 corrupted points, Tab.~3),
+% and "in every model" (the probe AUROC is reported for Qwen3-VL-4B only, Tab.~5).
+\begin{abstract}
+Vision--language models (VLMs) are deployed precisely where images are hardest to
+read: assistive photography for blind and low-vision users, perception through rain,
+fog and motion blur, and low-quality clinical or scientific scans. In these settings
+the safe response to an uninterpretable input is not a confident guess but an
+admission that the image cannot support an answer. We show that the obvious way to
+prepare a VLM for degraded inputs---fine-tuning it for corruption robustness---silently
+removes this behavior. Using two standard adaptation recipes, on-policy reverse-KL
+distillation (RKL) and Group Relative Policy Optimization (GRPO), we find that
+corruption-robust training improves clean and corrupted accuracy and transfers
+zero-shot to corruption types never seen in training, yet drives both models to
+answer uninterpretable and image-free inputs far more often than the base model.
+The regression is invisible to accuracy: the most accurate model we train is the
+worst at recognizing when it cannot see. We then explain the failure. A linear probe
+recovers answerability from frozen hidden states at $\mathrm{AUROC}\approx0.93$ in every
+model, so the ability is suppressed, not erased; and a reasoning-transplant test shows
+the two recipes break for opposite reasons---RKL cannot reason its way to
+``unanswerable,'' whereas GRPO reasons correctly but has learned an answer-level
+shortcut that commits regardless. Finally we recover abstention two ways---adding
+$10\%$ unanswerable examples to training, and inference-time activation steering toward
+the base model---each at no cost to the corruption gains, with the training objective
+deciding which works better. The results argue that corruption robustness and
+calibrated abstention must be measured, and optimized, together.
+\end{abstract}

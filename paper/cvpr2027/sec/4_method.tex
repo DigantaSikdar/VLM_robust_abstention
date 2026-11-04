@@ -1,0 +1,188 @@
+\section{Method}
+\label{sec:method}
+
+\subsection{Corruption-robust fine-tuning}
+\label{sec:method-ft}
+
+We adapt a VLM to corrupted inputs with the two recipes that dominate practice. Both train
+on the model's own sampled responses to the corrupted image $\tilde{x}$ and differ only in
+their supervision signal: a teacher's token distribution for RKL, a verifiable reward for
+GRPO.
+
+\paragraph{On-policy reverse-KL distillation (RKL).}
+Knowledge distillation trains a student to match a teacher's output distribution instead
+of hard labels~\cite{hinton2015distilling}. In off-policy distillation the student
+imitates sequences the teacher generated, so it is never corrected on the prefixes it
+reaches itself (exposure bias). On-policy
+distillation~\cite{agarwal2024onpolicydistillationlanguagemodels} instead lets the student
+sample its own responses and has the teacher score every token of them. In our setting the
+student $\pi_\theta$ sees the corrupted image $\tilde{x}$, and a frozen teacher
+$\pi_{\mathrm{teach}}$, a larger model from the same family, sees the clean image $x$. For
+each question we sample $N_{\mathrm{roll}} = 2$ responses
+$y \sim \pi_\theta(\cdot \mid \tilde{x}, q)$ and minimize the per-token reverse KL along
+them:
+\begin{equation}
+\begin{aligned}
+\mathcal{L}_{\mathrm{RKL}}(\theta) = \mathbb{E}\Big[\textstyle\sum_{t=1}^{T}
+\mathrm{KL}\big(&\pi_\theta(\cdot \mid y_{<t}, \tilde{x}, q) \\
+\,\big\|\,&\pi_{\mathrm{teach}}(\cdot \mid y_{<t}, x, q)\big)\Big],
+\end{aligned}
+\label{eq:rkl}
+\end{equation}
+with the expectation over $(x, \tilde{x}, q) \sim \mathcal{D}_{\mathrm{train}}$ and
+$y \sim \pi_\theta(\cdot \mid \tilde{x}, q)$. Reverse KL is mode-seeking: the student
+concentrates on the teacher's dominant continuations rather than covering all of
+them~\cite{gu2024minillm}. We estimate each per-token term from the sampled token, as a
+policy gradient with advantage
+$A_t = \log \pi_{\mathrm{teach}}(y_t \mid \cdot) - \log \pi_\theta(y_t \mid \cdot)$.
+\TODO{Cite EOPD for this estimator (configs: \texttt{loss: eopd}, \texttt{base: rkl}); state
+whether the Gemma-3-4B run used the exact full-vocabulary KL (\texttt{rkl\_full}).} RKL needs
+no gold answers, only teacher forward passes.
+
+\paragraph{Group Relative Policy Optimization (GRPO).}
+GRPO~\cite{shao2024deepseekmath} also trains on the model's own samples, but it replaces
+the teacher with a verifiable reward and PPO's value network with a group baseline. It
+sees only $\tilde{x}$. For each question it samples $G = 8$ responses
+$y^{(1)}, \dots, y^{(G)} \sim \pi_{\theta_{\mathrm{old}}}(\cdot \mid \tilde{x}, q)$ from the
+policy before the update, and scores each as
+\begin{equation}
+r_i = \mathds{1}\!\left[\mathrm{fmt}(y^{(i)}) \wedge \mathrm{ans}(y^{(i)}) = a^\star\right]
+      + w_{\mathrm{fmt}}\, \mathds{1}\!\left[\mathrm{fmt}(y^{(i)})\right],
+\label{eq:reward}
+\end{equation}
+where $\mathrm{fmt}(y) = 1$ if $y$ ends with exactly one \texttt{<answer>} block,
+$w_{\mathrm{fmt}} = 0.1$, and $a^\star$ is the GQA gold answer (exact match). Advantages are
+standardized within the group,
+\begin{equation}
+\hat{A}_i = \frac{r_i - \mathrm{mean}(r)}{\mathrm{std}(r) + \epsilon_{\mathrm{std}}},
+\label{eq:adv}
+\end{equation}
+and the policy maximizes the clipped surrogate with a KL anchor to the base model:
+\begin{equation}
+\begin{aligned}
+\mathcal{J}_{\mathrm{GRPO}}(\theta) = \mathbb{E}\Big[
+&\tfrac{1}{\sum_i |y^{(i)}|}\textstyle\sum_{i=1}^{G}\sum_{t}
+\min\!\big(\rho_{i,t}\hat{A}_i,\, \bar\rho_{i,t}\hat{A}_i\big) \\
+&- \beta\,\mathrm{KL}(\pi_\theta \,\|\, \pi_0)\Big],
+\end{aligned}
+\label{eq:grpo}
+\end{equation}
+where $\rho_{i,t} = \pi_\theta(y^{(i)}_t \mid \tilde{x}, q, y^{(i)}_{<t}) /
+\pi_{\theta_{\mathrm{old}}}(y^{(i)}_t \mid \tilde{x}, q, y^{(i)}_{<t})$,
+$\bar\rho_{i,t} = \mathrm{clip}(\rho_{i,t}, 1 - \epsilon_{\mathrm{clip}},
+1 + \epsilon_{\mathrm{clip}})$, $\epsilon_{\mathrm{clip}} = 0.2$,
+$\epsilon_{\mathrm{std}} = 10^{-6}$ and $\beta = 0.04$. In practice the token mean is taken
+over all groups of an optimizer step. Because every training question is answerable, no
+term of \cref{eq:reward,eq:grpo} ever rewards abstaining.
+
+\subsection{Recovering abstention}
+\label{sec:method-remedies}
+
+Each remedy below is an intervention $g$ in \cref{prob:recover}. The first changes the
+training data; the other two keep $\theta$ fixed and act at inference.
+
+\paragraph{Toy example.}
+Take the jellybean question of \cref{fig:teaser}(a), with $u = 1$. The base model $\pi_0$
+answers ``The image is too blurry and the text is not legible \dots'' and refuses, so
+$\mathrm{ref}(y) = 1$. After RKL, $\pi_\theta$ lists ``Cherry, Lime, Orange,
+Strawberry'': its reasoning describes flavors it cannot see. After GRPO, $\pi_\theta$
+writes ``Therefore, the answer is unanswerable'' and still gives
+$\mathrm{ans}(y) = $ ``strawberry'': its reasoning is right, but its answer ignores it.
+Both have $\mathrm{ref}(y) = 0$ and lower $\mathrm{CR}$. Retraining on unanswerable items
+makes $\mathrm{ref}(y) = 1$ the trained target for such inputs; the probe switch replaces
+$\mathrm{ans}(y)$ by a refusal when a linear read of the prompt says $u = 1$; steering
+shifts the hidden states of $\pi_\theta$ toward those of $\pi_0$ while the response is
+generated. Under steering, the GRPO model above answers ``The image is too blurry to
+determine the flavor \dots'' and refuses (\cref{fig:teaser}(c)).
+
+\paragraph{Unanswerable mix.}
+The first remedy asks whether abstention was lost simply because the training signal never
+contained it. We retrain $\pi_0$ from scratch with the same recipe and budget on a mix in
+which $10\%$ of the questions are unanswerable: GQA images corrupted far past recognition,
+whose target answer is ``unanswerable'' (Destroyed-GQA, \cref{sec:setup}). Abstaining is
+then imitated (RKL, whose teacher sees the same destroyed image) or rewarded (GRPO).
+
+\begin{algorithm}[t]
+\caption{\textbf{Probe switch: one linear read of the prompt replaces an answer by a
+refusal.} Lines 1--3 run once per model; lines 4--8 add no forward pass.}
+\label{alg:switch}
+\begin{algorithmic}[1]
+\Require model $\pi$, layer $\ell_{\mathrm{p}}$, calibration set
+  $\mathcal{C} = \{(x_j, q_j, u_j)\}$, L2 strength $\lambda_{\mathrm{L2}}$, cutoff
+  $\tau_{\mathrm{p}}$
+\State $h_j \gets h^{(\ell_{\mathrm{p}})}_{\mathrm{last}}(x_j, q_j)$ for every
+  $j$ \Comment{prefill only}
+\State $\mu, \sigma \gets$ mean and std.\ of $\{h_j\}$;
+  $\bar{h}_j \gets (h_j - \mu) \oslash \sigma$
+\State $(w, b) \gets$ class-balanced logistic regression of $u_j$ on $\bar{h}_j$, L2
+  strength $\lambda_{\mathrm{L2}}$
+\State On a test input $(x, q)$: prefill and read
+  $\bar{h} \gets (h^{(\ell_{\mathrm{p}})}_{\mathrm{last}}(x, q) - \mu) \oslash \sigma$
+\State $y \gets$ greedy response of $\pi(\cdot \mid x, q)$ \Comment{reuses the prefill}
+\If{$w^\top \bar{h} + b > \tau_{\mathrm{p}}$}
+  \State \Return ``unanswerable''
+\EndIf
+\State \Return $\mathrm{ans}(y)$
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Probe switch.}
+Robust fine-tuning leaves answerability linearly decodable (\cref{sec:rq1}), so the second
+remedy reads it directly (\cref{alg:switch}). Line~1 takes the residual-stream state
+$h^{(\ell)}_t \in \mathbb{R}^{d}$ (layer $\ell$, position $t$, hidden width $d$) at the last
+prompt token, the position just before the response begins: the decision to answer is
+already encoded there, and the state is a by-product of the prefill. Line~2 standardizes
+each feature with calibration statistics, so that one L2 strength penalizes all features
+on the same scale. Line~3 fits the probe class-balanced, because the calibration pool is
+not balanced; each model gets its own probe, fitted to its own activations. Lines~4--5 run
+the model unchanged. Lines~6--7 replace the answer by a refusal when the probe logit
+exceeds $\tau_{\mathrm{p}}$, which sets the trade-off between $\mathrm{CR}$ and
+$\mathrm{UR}$ in \cref{prob:recover}. Line~8 otherwise returns the model's own answer, so
+the robustness gained on answerable inputs is kept whenever the switch does not fire.
+
+\begin{algorithm}[t]
+\caption{\textbf{Contrastive activation steering pushes the fine-tuned model back toward
+the base model's refusal.} Shown for the image-contrast vector; the no-image vector
+changes lines 1--3 (see text). The weights are never modified.}
+\label{alg:steer}
+\begin{algorithmic}[1]
+\Require base $\pi_0$, fine-tuned $\pi_\theta$, pool $\mathcal{P}$ of unanswerable
+  VizWiz-train items, layer $\ell_{\mathrm{s}}$, scale $\alpha$, gate threshold
+  $\tau_{\mathrm{H}}$ ($\tau_{\mathrm{H}} < 0$: always on)
+\State $\mathcal{S} \gets \{(x, q) \in \mathcal{P} : \mathrm{ref}(y_0) = 1,\
+  \mathrm{ref}(y_\theta) = 0\}$, with $y_0, y_\theta$ the greedy responses of
+  $\pi_0, \pi_\theta$
+\State For each $(x, q) \in \mathcal{S}$, run $(x, q, y_\theta)$ through both models; collect
+  $h^{(\ell_{\mathrm{s}})}_{0,t} - h^{(\ell_{\mathrm{s}})}_{\theta,t}$ at every response
+  position $t$
+\State $v \gets$ mean of the collected differences, $v \in \mathbb{R}^{d}$
+\State On a test input, generate from $\pi_\theta$; at each decoding step $t$:
+\If{$\tau_{\mathrm{H}} < 0$ \textbf{or} $H_{t-1} > \tau_{\mathrm{H}}$}
+  \State $h^{(\ell_{\mathrm{s}})}_t \gets h^{(\ell_{\mathrm{s}})}_t + \alpha v$
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Activation steering.}
+The third remedy also uses the intact representation, but by changing the hidden states
+rather than reading them (\cref{alg:steer}). Line~1 keeps exactly the calibration
+questions on which fine-tuning broke abstention, so that the vector captures what
+fine-tuning changed rather than refusal in general. Line~2 feeds the same text (image,
+question and the fine-tuned model's own response) through both models, so that the
+difference reflects the two models rather than two inputs. Line~3 averages over all
+response tokens of all selected questions, giving one direction along which the base
+model's ``this image does not support an answer'' state differs from the fine-tuned
+model's over-confident one. The \emph{no-image} vector targets the complementary case of a
+missing image: it pairs questions asked without their image on which $\pi_0$ refuses and
+$\pi_\theta$ answers, runs the question followed by the base refusal and the question
+followed by the fine-tuned answer through $\pi_\theta$, and averages the difference of the
+response-averaged states. Lines~4--6 add $\alpha v$ to the residual stream at layer
+$\ell_{\mathrm{s}}$ on generated tokens only, upstream of the layers where answerability
+is most decodable, so that the push lands before the tokens that commit to an answer. The
+optional gate (line~5) steers only after uncertain steps, where the entropy
+$H_{t-1} = -\sum_{z \in \mathcal{V}} p_{t-1}(z) \log p_{t-1}(z)$ of the previous
+next-token distribution of $\pi_\theta$ exceeds $\tau_{\mathrm{H}}$; it uses step $t-1$
+because the distribution at step $t$ depends on the push itself. We gate RKL, whose failure
+lies in its reasoning (\cref{sec:rq2}), so that the push corrects confused steps without
+disturbing fluent ones; GRPO's failure is a uniform answer-level shortcut, so its push is
+always on. All calibration data come from training splits with no evaluation overlap.
