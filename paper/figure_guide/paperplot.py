@@ -41,7 +41,7 @@ INK = "#1A1A1A"
 MUTED = "#666666"
 GRID = "#E4E4E4"
 SEQ_CMAP = "viridis"
-DIV_CMAP = "BrBG"  # teal = better, brown = worse; avoids the red reserved for "ours"
+DIV_CMAP = "BrBG"  # teal = better, brown = worse; avoids red/green, which colorblind readers confuse
 
 
 @dataclass(frozen=True)
@@ -56,8 +56,8 @@ class Role:
 # Fixed slot order: colour follows the method across the whole paper.
 # Each slot has a redundant marker, dash and hatch so it survives grayscale printing.
 ROLES = {
-    "ours": Role("#C9302C", "o", "-", "", 1.7),
-    "a": Role("#2E7BD6", "s", "-", "////"),
+    "ours": Role("#2E7BD6", "o", "-", "", 1.7),
+    "a": Role("#C9302C", "s", "-", "////"),
     "b": Role("#BF8700", "^", (0, (5, 1.5)), "\\\\\\\\"),
     "c": Role("#A23BA6", "D", (0, (3, 1, 1, 1)), "...."),
     "d": Role("#159E86", "v", (0, (1, 1)), "xxxx"),

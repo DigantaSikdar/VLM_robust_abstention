@@ -71,8 +71,8 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 
 | Role | Hex | Marker | Line | Hatch | Use |
 |---|---|---|---|---|---|
-| `ours` | `#C9302C` | circle | solid, thicker | none | The proposed method, always |
-| `a` | `#2E7BD6` | square | solid | `////` | Strongest baseline |
+| `ours` | `#2E7BD6` | circle | solid, thicker | none | The proposed method, always |
+| `a` | `#C9302C` | square | solid | `////` | Strongest baseline |
 | `b` | `#BF8700` | triangle | dashed | `\\\\` | Baseline |
 | `c` | `#A23BA6` | diamond | dash-dot | dots | Baseline |
 | `d` | `#159E86` | down triangle | dotted | `xxxx` | Baseline |
@@ -83,7 +83,7 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 - At most five methods in one panel. Beyond that, show the best few and move the rest to the supplement.
 - Variants of one idea share a hue. Ablations use tints of `ours`.
 - Sequential data: `viridis`. Signed data: `BrBG`, centred at exactly zero. Never `jet` or rainbow.
-- Do not use red or green to mean good or bad in heatmaps, because red means "ours".
+- Do not use red and green to mean good and bad in heatmaps, because colorblind readers confuse them and red is a method color.
 - Text is ink or muted gray, not the series color.
 
 ## 5. Marks and chrome
@@ -160,7 +160,7 @@ By hand:
 | Y-axis on bars | Not specified | Zero (Fig. 8) | Tightened to the data | Zero, or switch to dots |
 | Value labels | Not specified | None | On every bar | Selective |
 | Bar separation | Seaborn default | Plain fill | Black edges, hatch | White gaps, white hatch |
-| Ours color | Not specified | Red | Blue | Red, matching the current paper |
+| Ours color | Not specified | Red | Blue | Blue |
 | Legend | `loc="best"` | Shared, below | Dedicated panel | Shared, below |
 | Statistics | Wilcoxon annotations | Shaded bands | Optional bands | Intervals always, exact paired p-values |
 | File output | 600 dpi `savefig` | Embedded rasters | PNG + PDF | Vector PDF + preview PNG |

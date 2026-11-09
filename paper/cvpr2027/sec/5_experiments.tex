@@ -134,7 +134,7 @@ control and abstaining on the removed image).
 \caption{\textbf{Destroyed-GQA.} One real item per destroyed style: the original GQA
 image (top) and the training input (bottom), corrupted far beyond the $1$--$5$ severity
 scale (severity $100$; $50$ for snow). The answer is replaced by ``unanswerable''; the
-$3{,}334$ items make up $10\%$ of the unanswerable mix.}
+$3{,}334$ items make up $10\%$ of the unanswerable mix}
 \label{fig:destroyed_gqa}
 \end{figure*}
 
@@ -179,14 +179,14 @@ snow           & 50  & 476 & 92\%  & 92\%  \\
 \paragraph{Remedy settings.}
 \emph{LATCH} (\cref{alg:latch}): $\ell_{\mathrm{p}}$ is decoder layer $24$ of $36$
 in Qwen3-VL-4B, Gemma-3-4B and InternVL3.5-4B,
-$\lambda_{\mathrm{L2}} = 0.1$, and the cutoff probability is $p_{\mathrm{c}} = 0.88$ ($\tau_{\mathrm{p}} = 2$ on the logit). The calibration pool $\mathcal{C}$ is drawn from the
+$\lambda_{\mathrm{L2}} = 0.1$, and and the cutoff probability is $p_{\mathrm{c}} = 0.88$. The calibration pool $\mathcal{C}$ is drawn from the
 VizWiz train split ($1{,}101$ unanswerable and $800$ answerable questions, labeled by
 VizWiz's answer type), sharing no question or image with any evaluation set. LATCH is
 applied to every item of every benchmark, and an answer it replaces is scored like any other,
 so a false refusal on an answerable question counts as an error. \emph{Activation steering}
 (\cref{alg:steer}): $\ell_{\mathrm{s}} = 18$ of $36$ layers,
 upstream of the best probe layers ($23$--$24$, \cref{sec:rq1}); $\alpha = 8$ for the
-image-contrast vector and $\alpha = 1$ for the no-image vector. The no-image vector uses
+image-contrast vector and $\alpha = 1$ for the no-image vector, The no-image vector uses
 $150$ pairs per dataset; only $184$ VizWiz-train pairs qualify for GRPO, against $1{,}365$
 for RKL, because GRPO already refuses most no-image VizWiz questions. RKL is steered with the
 entropy gate at $\tau_{\mathrm{H}} = 0.5$ nats, GRPO always on.
@@ -281,7 +281,7 @@ GRPO                                          & 60.65 & 66.68 \\
 \begin{table*}[t]
 \centering
 \caption{\textbf{Robust fine-tuning lowers correct refusals on every backbone;
-LATCH recovers $16$--$38$ points of them while adding at most $2.8$ points of unnecessary
+LATCH recovers $16$--$39$ points of them while adding at most $2.8$ points of unnecessary
 refusals.} }
 % src: outputs/eval/full-*/results.jsonl, outputs/eval/{base4b-sys,fullft_*}-extra (vLLM rows);
 %      outputs/steer_full/*/eval (steering); outputs/probe_switch/*/report.json (probe, tau_p = 2)
@@ -448,7 +448,7 @@ On every fine-tuned model, LATCH restores abstention best. It refuses
 when the probe's predicted probability that a question is unanswerable exceeds a cutoff
 $p_{\mathrm{c}}$; \cref{tab:accuracy,tab:refusal} use $p_{\mathrm{c}} = 0.88$. At this
 cutoff it raises correct refusals on VizWiz from $11$--$50\%$ to $43$--$65\%$
-($16$--$38$ points) while adding only $1.5$--$2.8$ points of unnecessary refusals, and it
+($16$--$39$ points) while adding only $1.5$--$2.8$ points of unnecessary refusals, and it
 costs at most $0.4$ points of corrupted accuracy ($1.3$ on Gemma-3-4B GRPO) and at most
 $1.4$ points of answerable accuracy. The unanswerable mix and steering approach or exceed
 its correct refusals only on Qwen3-VL-4B and InternVL3.5-4B RKL, and only at $13$--$18\%$
@@ -463,15 +463,16 @@ The reason is that robust fine-tuning suppresses abstention in the model's outpu
 leaves answerability linearly decodable from its residual stream. LATCH reads this
 signal once, before generation, and leaves the answer untouched when it does not fire, so
 the robustness gained on answerable inputs is preserved, and a single threshold sets the
-trade-off ($\tau_{\mathrm{p}} = 0$ is the cutoff $p_{\mathrm{c}} = 0.5$ above).
+trade-off ($\tau_{\mathrm{p}} = 0$ raises correct refusals to $85$--$88\%$ at roughly twice
+the unnecessary refusals).
 
-Steering reads the same representation but acts through one fixed direction added during
-decoding, so triggering refusals and preserving answers conflict. On Qwen3-VL-4B RKL,
+Steering reads the same representation but acts through one fixed direction added at every
+decoding step, so triggering refusals and preserving answers conflict. On Qwen3-VL-4B RKL,
 always-on no-image steering reaches $88.6\%$ correct refusals but refuses $45.4\%$ of
 answerable questions and loses $8.9$ points of accuracy. Steering is also fragile across
 models: the best direction differs between models, and on Gemma-3-4B no configuration
 raises correct refusals by more than $7$ points, whereas LATCH, unchanged, lifts
-them from $11$--$12\%$ to $43$--$50\%$.
+them from $11$--$13\%$ to $81$--$82\%$.
 
 Retraining helps without test-time machinery, but it needs a full training run and
 recovers less, because its unanswerable examples are GQA questions on destroyed images,
@@ -504,13 +505,13 @@ Base                     & 87.0 & 86.5 & 50.6 & 45.3 && 90.0 & 90.0 & 35.7 & 33.
 \midrule
 GRPO                     & 92.3 & 92.1 & 24.8 & 23.7 && 91.7 & 91.9 & 15.4 & 15.0 && 77.4 & 77.4 &  9.4 &  8.1 \\
 \quad + steering$^\dagger$ & 91.5 & 91.5 & 49.6 & 46.8 && 92.3 & 92.5 & 19.2 & 18.4 && 77.1 & 75.6 & 12.0 & 10.3 \\
-\quad + LATCH$^\dagger$ & 91.5 & 92.1 & 39.3 & 37.4 && 91.0 & 91.2 & 21.8 & 20.3 && 76.1 & 76.5 & 14.5 & 11.8 \\
+\quad + probe switch$^\dagger$ & 91.5 & 92.1 & 39.3 & 37.4 && 91.0 & 91.2 & 21.8 & 20.3 && 76.1 & 76.5 & 14.5 & 11.8 \\
 GRPO-10\%                & 91.7 & 91.2 & 22.2 & 21.2 && 90.8 & 91.2 &  6.6 &  6.2 && 77.4 & 75.6 &  4.7 &  4.3 \\
 
 \midrule
 RKL$^\ddagger$           & 87.0 & 85.9 & 41.7 & 37.2 && 87.8 & 88.0 & 28.0 & 25.0 && 81.4 & 79.9 & 12.2 & 11.3 \\
 \quad + steering$^\dagger$ & 76.9 & 77.4 & 73.1 & 54.5 && 82.7 & 83.3 & 54.1 & 44.2 && 79.5 & 79.5 & 22.4 & 18.8 \\
-\quad + LATCH$^\dagger$ & 87.6 & 84.8 & 44.9 & 39.1 && 87.4 & 88.0 & 35.3 & 31.0 && 80.6 & 80.3 & 23.1 & 19.2 \\
+\quad + probe switch$^\dagger$ & 87.6 & 84.8 & 44.9 & 39.1 && 87.4 & 88.0 & 35.3 & 31.0 && 80.6 & 80.3 & 23.1 & 19.2 \\
 RKL-10\%$^\ddagger$      & 85.5 & 84.4 & 45.7 & 39.7 && 87.2 & 87.2 & 36.1 & 31.0 && 79.5 & 81.0 & 16.5 & 14.1 \\
 \bottomrule
 \end{tabular}
@@ -518,7 +519,7 @@ RKL-10\%$^\ddagger$      & 85.5 & 84.4 & 45.7 & 39.7 && 87.2 & 87.2 & 36.1 & 31.
 original and control images. Rem.: evidence-removed accuracy (abstention rate when the
 answer is erased). Cons.: correct on original and control \emph{and} abstaining on the
 removed image. -10\%: trained with $10\%$ destroyed images labeled \emph{unanswerable}.
-$^\dagger$No-image steering ($\lambda{=}1$, layer $18$) and LATCH ($\tau{=}2$),
+$^\dagger$No-image steering ($\lambda{=}1$, layer $18$) and probe switch ($\tau{=}2$),
 fixed from the VizWiz experiments; HuggingFace decoding, whose unsteered baseline is
 within $1.1$ points of the row above. $^\ddagger$Gemma: exact full-vocabulary RKL.}
 \label{tab:paired}
@@ -534,7 +535,7 @@ objective, not the corrupted data: RKL retains more abstention than GRPO on ever
 ($41.7$, $28.0$, $12.2$), and GRPO trained on \emph{clean} images abstains even less
 ($17.9$). Adding $10\%$ unanswerable images restores RKL to roughly base-model abstention
 ($45.7$, $36.1$, $16.5$) but lowers it further for GRPO ($22.2$, $6.6$, $4.7$). Both fixes
-transfer: LATCH adds $4$--$13$ points at $\leq0.7$ points of original accuracy,
+transfer: the probe switch adds $4$--$13$ points at $\leq0.7$ points of original accuracy,
 and separates removed from control images as well as from originals (AUROC within $0.3$),
 so it detects missing evidence rather than the edit; no-image steering returns Qwen GRPO
 to base-model abstention ($49.6$) at negligible cost, and gives the largest gains on RKL
@@ -558,10 +559,6 @@ Model & Corr.$\uparrow$ & Clean$\uparrow$ & Gap$\downarrow$ & Ans.$\uparrow$ & U
 Base                        & 64.3 & 72.1 & 7.8 & 40.6 & 12.8 & 71.6 & 76.0 & 98.3 & 50.6 \\
 GRPO, corrupted images      & 71.8 & 79.0 & 7.2 & 60.9 &  3.2 & 44.9 & 60.3 & 87.1 & 24.8 \\
 GRPO, clean images          & 71.7 & 79.1 & 7.4 & 62.8 &  1.1 & 27.9 & 48.2 & 72.4 & 17.9 \\
-\midrule
-\multicolumn{10}{l}{\textit{GRPO, clean images, intermediate checkpoints}} \\
-\quad step 1250             & 71.2 & 78.6 & 7.4 & 64.5 &  1.1 & 25.5 & 45.1 & 51.4 & 14.3 \\
-\quad step 2500             & 71.6 & 78.9 & 7.2 & 63.4 &  1.5 & 30.3 & 49.4 & 72.0 & 20.7 \\
 \bottomrule
 \end{tabular}}
 \caption{\textbf{Clean- vs.\ corrupted-image GRPO} (Qwen3-VL-4B, identical recipe, strict
@@ -600,15 +597,13 @@ partly preserves the model's willingness to abstain.
 \subsection{Qualitative example}
 \label{sec:qualitative}
 
-\Cref{fig:teaser} shows the aggregate behavior on two Qwen3-VL-4B items. On the GQA question
-under severity-$5$ motion blur (A), the base model answers ``bed''; GRPO recognizes the
-office workstation and gives the gold answer ``desk''; and LATCH keeps that answer, because
-the probe logit ($-5.93$) is below $\tau_{\mathrm{p}}$. On the unanswerable VizWiz question
-(B), the base model writes that the image is ``too blurry and distorted to read any text''
-and answers ``unanswerable''. The GRPO model writes that the text ``cannot be deciphered
-with certainty'' and then answers ``3232'', the answer-side shortcut of \cref{sec:rq2}: its
-reasoning reaches the right conclusion and its answer ignores it. The probe logit on this
-item ($3.915$) exceeds $\tau_{\mathrm{p}}$, so LATCH replaces the answer by a refusal. The
-RKL failure is of the other kind: on a blurry VizWiz photo of jellybeans, it describes the
-flavors as ``clearly visible'' and answers ``Cherry, Lime, Orange, Strawberry'', matching
-the reasoning-side failure of \cref{sec:rq2}.
+\Cref{fig:teaser} shows the aggregate failure on one VizWiz photograph. The base
+Qwen3-VL-4B states that ``the image is too blurry and the text is not legible'' and answers
+``unanswerable''. The RKL model describes flavors as ``clearly visible'' and answers
+``Cherry, Lime, Orange, Strawberry'', matching the reasoning-side failure of \cref{sec:rq2}.
+The GRPO model writes ``the labels are illegible. Therefore, the answer is unanswerable''
+and then answers ``strawberry'', the answer-side shortcut: its reasoning reaches the right
+conclusion and its answer ignores it. With steering, the same GRPO model answers ``The image
+is too blurry to determine the flavor'' and refuses, and LATCH refuses on this item as
+well, without changing the response (\cref{fig:teaser}).
+% TODO: confirm in outputs/probe_switch that the probe fires on VizWiz_val_00002295.
