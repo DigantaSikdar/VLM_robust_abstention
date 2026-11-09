@@ -1,22 +1,21 @@
-% Alternative Fig. 1 (teaser): qualitative examples on the left, the plot on the right.
-% Build:  cd figures/src && tectonic fig1_qual.tex && mv fig1_qual.pdf ../teaser_qual.pdf
+% Alternative Fig. 1 (teaser): the VLM diagram of Fig. 1 with two inputs and two outputs per
+% model (A = robustness, B = abstention), and the plot on the right.
+% Build:  cd figures/src && python3 drawio_left_to_tikz.py --out teaser_qual_left.tex \
+%           --skip 1,2,15,27,39,41,44,45,46,49,54,55,56,110,111 \
+%           && tectonic fig1_qual.tex && mv fig1_qual.pdf ../teaser_qual.pdf
+% The diagram comes from ../drawio_files/teaser.drawio (minus its photo, question and outputs).
 % Examples live in teaser_qual_examples.tex. teaser_qual_plot.pdf is the plot cropped, as
-% vector, from ../teaser.pdf. Row colors are those of drawio_files/teaser.drawio.
+% vector, from ../teaser.pdf.
 \documentclass[tikz,border={0.5pt 0.5pt 0.5pt 2pt}]{standalone}
 \usepackage{fontspec}
 \setmainfont{texgyretermes}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,
   ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
 \usepackage{xcolor}
-\usetikzlibrary{calc}
+\usetikzlibrary{calc,arrows.meta}
 
 \definecolor{ink}{HTML}{000000}
 \definecolor{bad}{HTML}{DC5B52}
 \definecolor{good}{HTML}{1D8159}
-\definecolor{ours}{HTML}{3775BA}
-\definecolor{base}{HTML}{767676}
-\definecolor{rowA}{HTML}{EEEEEE}\definecolor{rowAl}{HTML}{36393D}
-\definecolor{rowB}{HTML}{F8E4E4}\definecolor{rowBl}{HTML}{B85450}
-\definecolor{rowC}{HTML}{DDEEFF}\definecolor{rowCl}{HTML}{66B2FF}
 
 \newcommand{\fs}[1]{\fontsize{#1pt}{\dimexpr #1pt*118/100\relax}\selectfont}
 \newcommand{\ok}{\tikz[baseline=-0.55ex]{\fill[good](0,0) circle(2.7pt);
@@ -25,51 +24,68 @@
 \newcommand{\no}{\tikz[baseline=-0.55ex]{\fill[bad](0,0) circle(2.7pt);
   \draw[white,sharp corners,line width=0.6pt,line cap=round]
   (-0.95pt,-0.95pt)--(0.95pt,0.95pt)(-0.95pt,0.95pt)--(0.95pt,-0.95pt);}}
+\newcommand{\badge}[1]{\tikz[baseline=-0.6ex]{\fill[ink](0,0) circle(3.1pt);
+  \node[anchor=center, text=white, font=\fs{5}\bfseries, inner sep=0pt] at (0,0) {#1};}}
 \input{teaser_qual_examples.tex}
 
 \begin{document}
 \begin{tikzpicture}[x=1pt,y=1pt,
   every node/.style={inner sep=0pt, outer sep=0pt, text=ink},
-  chip/.style={draw=ink, line width=0.6pt, rounded corners=2pt, fill=white, font=\fs{7.4},
-               minimum height=13pt, minimum width=84pt, inner xsep=3pt},
-  coltitle/.style={font=\fs{8}\bfseries, anchor=south},
-  colsub/.style={font=\fs{6.8}\itshape, anchor=north},
-  question/.style={font=\fs{6.8}\itshape, align=center, text width=90pt, anchor=north},
+  wire/.style={line width=0.6pt, color=ink},
+  arr/.style={wire, -{Triangle[length=3pt,width=2.8pt]}},
 ]
-\def\XR{108}\def\XA{204}   % column centres
-\def\IW{64}\def\IH{46}     % photo slot
-% photo or a visible placeholder: \photo{file}{centre x}
-\newcommand{\photo}[2]{%
-  \IfFileExists{#1}{\node[anchor=north] at (#2,-20)
-    {\includegraphics[width=\IW pt,height=\IH pt,keepaspectratio]{#1}};}{%
-    \draw[bad, line width=0.6pt, dash pattern=on 2pt off 1.5pt]
-      (#2-\IW/2,-20) rectangle (#2+\IW/2,-20-\IH);
-    \node[font=\fs{6.4}, text=bad] at (#2,-20-\IH/2) {photo needed};}}
-% \row{y}{fill}{line}{label}{label color}{rob}{rob mark}{abs}{abs mark}
-\newcommand{\row}[9]{%
-  \draw[#3, line width=0.6pt, fill=#2, rounded corners=3pt] (0,#1-11.5) rectangle (252,#1+11.5);
-  \node[font=\fs{7.4}\bfseries, align=left, text=#5, anchor=west] at (5,#1) {#4};
-  \node[chip] at (\XR,#1) {};
-  \node[font=\fs{7.4}, anchor=west] at (\XR-39,#1) {#6};
-  \node at (\XR+35,#1) {#7};
-  \node[chip] at (\XA,#1) {};
-  \node[font=\fs{7.4}, anchor=west] at (\XA-39,#1) {#8};
-  \node at (\XA+35,#1) {#9};
+\input{teaser_qual_left.tex}
+
+% ---------------------------------------------------------------- inputs A and B
+\def\PW{58}\def\PH{41}
+% \inputex{badge}{title}{top y}{file}{question}{node name}
+\newcommand{\inputex}[6]{%
+  \node[anchor=north west, font=\fs{7.4}\bfseries] at (0,#3) {\badge{#1}\ #2};
+  \IfFileExists{#4}{%
+    \node[anchor=north] (#6) at (\PW/2,#3-10)
+      {\includegraphics[width=\PW pt,height=\PH pt,keepaspectratio]{#4}};
+    \draw[ink, line width=0.5pt] (#6.south west) rectangle (#6.north east);
+  }{%
+    \node[anchor=north, minimum width=\PW pt, minimum height=\PH pt, draw=bad,
+          line width=0.6pt, dash pattern=on 2pt off 1.5pt, font=\fs{6.4}, text=bad]
+      (#6) at (\PW/2,#3-10) {photo needed};
+  }
+  \node[anchor=north west, text width=64pt, align=flush left, font=\fs{6.6}\itshape]
+    at (0,#3-10-\PH-1.5) {#5};
 }
-% ---------------------------------------------------------------- column heads
-\node[coltitle] at (\XR,-9) {Robustness};
-\node[colsub] at (\XR,-10) {corrupted, answerable};
-\node[coltitle] at (\XA,-9) {Abstention};
-\node[colsub] at (\XA,-10) {unanswerable};
-\photo{\RobImg}{\XR}
-\photo{\AbsImg}{\XA}
-\node[question] at (\XR,-68.5) {\RobQ};
-\node[question] at (\XA,-68.5) {\AbsQ};
-% ---------------------------------------------------------------- rows
-\row{-92}{rowA}{rowAl}{Base VLM}{base}{\RobBase}{\RobBaseMark}{\AbsBase}{\AbsBaseMark}
-\row{-118}{rowB}{rowBl}{Robust\\[-1pt]fine-tuned}{bad}{\RobFT}{\RobFTMark}{\AbsFT}{\AbsFTMark}
-\row{-144}{rowC}{rowCl}{+ LATCH\\[-1pt](ours)}{ours}{\RobOurs}{\RobOursMark}{\AbsOurs}{\AbsOursMark}
+\inputex{A}{Robustness}{-5}{\RobImg}{\RobQ}{pA}
+\inputex{B}{Abstention}{-81}{\AbsImg}{\AbsQ}{pB}
+
+% both inputs go to every model (same curved fan as Fig. 1)
+\coordinate (J) at (67,-77);
+\draw[wire] (pA.east) .. controls (63,-30.5) and (61,-77) .. (J);
+\draw[wire] (pB.east) .. controls (63,-106.5) and (61,-77) .. (J);
+\foreach \r in {-24,-76.42,-128.7} {
+  \draw[arr] (J) .. controls (76,-77) and (76,\r) .. (85.4,\r);
+}
+
+% ---------------------------------------------------------------- two outputs per model
+% \outs{row centre y}{from x}{fork x}{A text}{A mark}{B text}{B mark}
+\def\CX{192.5}\def\CW{63.5}\def\CH{11.6}\def\DY{6.75}
+\newcommand{\chip}[4]{% y, badge, text, mark
+  \draw[ink, line width=0.6pt, rounded corners=2pt, fill=white]
+    (\CX,#1-\CH/2) rectangle (\CX+\CW,#1+\CH/2);
+  \node at (\CX+5.6,#1) {\badge{#2}};
+  \node[anchor=west, font=\fs{7}] at (\CX+11,#1) {#3};
+  \node at (\CX+\CW-5.2,#1) {#4};
+}
+\newcommand{\outs}[7]{%
+  \draw[wire] (#2,#1) -- (#3,#1);
+  \draw[arr] (#3,#1) .. controls ({(#3+\CX)/2},#1) and ({(#3+\CX)/2},#1+\DY) .. (\CX,#1+\DY);
+  \draw[arr] (#3,#1) .. controls ({(#3+\CX)/2},#1) and ({(#3+\CX)/2},#1-\DY) .. (\CX,#1-\DY);
+  \chip{#1+\DY}{A}{#4}{#5}
+  \chip{#1-\DY}{B}{#6}{#7}
+}
+\outs{-24}{165}{179}{\RobBase}{\RobBaseMark}{\AbsBase}{\AbsBaseMark}
+\outs{-76.42}{165}{179}{\RobFT}{\RobFTMark}{\AbsFT}{\AbsFTMark}
+\outs{-128.7}{180.6}{184}{\RobOurs}{\RobOursMark}{\AbsOurs}{\AbsOursMark}
+
 % ---------------------------------------------------------------- plot (unchanged)
-\node[anchor=east] at (486,-78) {\includegraphics[width=224pt]{teaser_qual_plot.pdf}};
+\node[anchor=east] at (486,-79.5) {\includegraphics[width=224pt]{teaser_qual_plot.pdf}};
 \end{tikzpicture}
 \end{document}

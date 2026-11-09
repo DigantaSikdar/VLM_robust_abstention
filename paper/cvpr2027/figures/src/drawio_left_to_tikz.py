@@ -6,13 +6,21 @@ text, the check/cross glyphs and edges (straight, polyline, curved orthogonal).
 draw.io px -> pt: divide by 2 (the drawing was laid out at 2 px per pt).
 
 Run:  python3 drawio_left_to_tikz.py   ->  teaser_left.tex (\\input by fig1.tex)
+      python3 drawio_left_to_tikz.py --skip 1,2,15 --out teaser_qual_left.tex   (cells by the
+      number at the end of their id; coordinates stay those of the full drawing)
 """
+import argparse
 import os
 import xml.etree.ElementTree as ET
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 SRC = os.path.join(HERE, "..", "drawio_files", "teaser.drawio")
-OUT = os.path.join(HERE, "teaser_left.tex")
+ap = argparse.ArgumentParser()
+ap.add_argument("--skip", default="", help="comma-separated id suffixes of cells to leave out")
+ap.add_argument("--out", default="teaser_left.tex")
+args = ap.parse_args()
+OUT = os.path.join(HERE, args.out)
+SKIP = {x for x in args.skip.split(",") if x}
 PHOTO = "vizwiz_00002295.jpg"
 
 
@@ -32,6 +40,7 @@ def box(c):
 
 X0 = min(box(c)[0] for c in cells if not c.get("edge"))
 Y0 = min(box(c)[1] for c in cells if not c.get("edge"))
+cells = [c for c in cells if c.get("id").rsplit("-", 1)[-1] not in SKIP]  # origin of the full drawing
 def fx(x): return round((x - X0) / 2, 3)
 def fy(y): return round(-(y - Y0) / 2, 3)
 def fl(v): return round(v / 2, 3)
