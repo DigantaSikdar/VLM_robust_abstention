@@ -46,8 +46,8 @@ def learning_curves():
         ax.set_yticks([0, 0.5, 1])
     axes[0].set_ylabel("normalized return")
     pp.shared_xlabel(axes, "environment steps")
-    pp.legend_below(fig, [pp.key("ours", "Ours"), pp.key("a", "Baseline A"), pp.key("b", "Baseline B"),
-                          pp.key("c", "Baseline C"), pp.key("oracle", "Oracle")])
+    pp.legend(axes, [pp.key("ours", "Ours"), pp.key("a", "Baseline A"), pp.key("b", "Baseline B"),
+                     pp.key("c", "Baseline C"), pp.key("oracle", "Oracle")])
     finish(fig, "01_learning_curves")
 
 
@@ -64,11 +64,11 @@ def risk_coverage():
         aurc = np.trapezoid(y, c) / 0.8
         handles.append(pp.key(role, f"{names[role]} (AURC {aurc:.3f})"))
     pp.line(ax, c, np.maximum(0, 1 - (1 - 0.12) / c) * 100, "oracle")
-    ax.axvline(0.8, color=pp.MUTED, lw=0.5, zorder=1)
-    pp.label_end(ax, 0.8, 17.4, "target coverage", dx=-2, dy=0, ha="right", va="center", color=pp.MUTED)
-    ax.set(xlim=(0.2, 1.0), ylim=(0, 18), xlabel="coverage (fraction of questions answered)",
-           ylabel="risk on answered (%)", yticks=[0, 5, 10, 15])
-    pp.legend_below(fig, handles + [pp.key("oracle", "Oracle")], ncol=2)
+    ax.vlines(0.8, 0, 17.5, color=pp.MUTED, lw=0.5, zorder=1)
+    ax.set(xlim=(0.2, 1.0), ylim=(0, 25), xlabel="coverage (fraction of questions answered)",
+           ylabel="risk on answered (%)", yticks=[0, 5, 10, 15, 20])
+    target = mpl.lines.Line2D([], [], color=pp.MUTED, lw=0.5, label="target coverage")
+    pp.legend(ax, handles + [pp.key("oracle", "Oracle"), target])
     finish(fig, "02_risk_coverage")
 
 
@@ -86,10 +86,10 @@ def grouped_bars():
             for p, val, er in zip(pos, v, e):
                 ax.text(p, val + er + 1.2, f"{val:.1f}", ha="center", va="bottom", fontsize=7)
     ax.set_xticks(groups, ["Dataset A", "Dataset B", "Dataset C"])
-    ax.set(ylim=(0, 100), ylabel="accuracy (%)")
+    ax.set(ylim=(0, 118), ylabel="accuracy (%)", yticks=range(0, 101, 20))
     ax.grid(axis="x", visible=False)
-    pp.legend_below(fig, [pp.key("ours", "Ours", "patch"), pp.key("a", "Baseline A", "patch"),
-                          pp.key("b", "Baseline B", "patch"), pp.key("c", "Baseline C", "patch")])
+    pp.legend(ax, [pp.key("ours", "Ours", "patch"), pp.key("a", "Baseline A", "patch"),
+                   pp.key("b", "Baseline B", "patch"), pp.key("c", "Baseline C", "patch")])
     finish(fig, "03_grouped_bars")
 
 
@@ -154,7 +154,7 @@ def reliability():
     pp.label_end(top, 0.93, 0.975, "perfect", dx=-2, dy=0, ha="right", va="bottom", color=pp.MUTED)
     top.set(xlim=(0, 1), ylim=(0, 1.05), ylabel="empirical accuracy")
     h = np.array([2, 3, 4, 5, 7, 9, 13, 17, 19, 21], float)
-    bot.bar(conf, h, width=0.085, color=pp.ROLES["ours"].color, zorder=2)
+    bot.bar(conf, h, width=0.085, color=pp.tint("ours", pp.OURS_BAR_SHADE), zorder=2)
     bot.set(ylim=(0, 25), ylabel="% samples", xlabel="predicted confidence")
     bot.set_xticks(np.arange(0, 1.01, 0.2))
     bot.grid(axis="x", visible=False)
@@ -252,10 +252,10 @@ def ablation():
     names = ["Base model", "+ corrupted views", "+ consistency loss", "+ abstention head", "Full (ours)"]
     vals = [52.4, 61.0, 66.2, 69.1, 74.8]
     errs = [1.2, 1.1, 1.0, 1.1, 0.9]
-    alphas = [0.28, 0.42, 0.58, 0.76, 1.0]
+    shades = [0.16, 0.26, 0.38, 0.52, 0.72]
     y = np.arange(5)
-    for k, (v, e, a) in enumerate(zip(vals, errs, alphas)):
-        pp.bar(ax, k, v, 0.68, "ours", err=e, horizontal=True, alpha=a)
+    for k, (v, e, a) in enumerate(zip(vals, errs, shades)):
+        pp.bar(ax, k, v, 0.68, "ours", err=e, horizontal=True, shade=a)
         ax.text(v + e + 1.0, k, f"{v:.1f}", va="center", fontsize=7)
     ax.set_yticks(y, names)
     ax.set(xlim=(0, 88), ylim=(4.6, -0.6), xlabel="accuracy (%)")
@@ -276,7 +276,7 @@ def performance_profile():
         handles.append(pp.key(role, name))
     ax.set(xlim=(0, 2), ylim=(0, 1.03), xlabel=r"normalized score $\tau$",
            ylabel=r"fraction of runs with score $>\tau$", xticks=[0, 0.5, 1, 1.5, 2], yticks=[0, 0.5, 1])
-    ax.legend(handles=handles, loc="upper right")
+    pp.legend(ax, handles)
     finish(fig, "11_performance_profile")
 
 
@@ -290,7 +290,7 @@ def sensitivity():
         err = 1.6 * np.ones_like(y, dtype=float)
         ax.axhspan(65, 68, color=pp.ROLES["a"].color, alpha=0.16, lw=0, zorder=1)
         ax.axhline(66.5, color=pp.ROLES["a"].color, lw=1.2, zorder=2)
-        ax.axvline(default, color=pp.MUTED, lw=0.6, zorder=1)
+        ax.vlines(default, 65, 82, color=pp.MUTED, lw=0.6, zorder=1)
         pp.line(ax, x, y, "ours", lo=y - err, hi=y + err, marker=True)
         ax.set_xscale("log", base=2 if i == 2 else 10)
         ax.set_xlabel(label)
@@ -300,7 +300,7 @@ def sensitivity():
         pp.label_end(ax, default, 80.4, "default", dx=2, dy=0, color=pp.MUTED, fontsize=7)
     axes[2].set_xticks([1, 4, 16, 64], ["1", "4", "16", "64"])
     axes[0].set_ylabel("accuracy (%)")
-    pp.legend_below(fig, [pp.key("ours", "Ours"), pp.key("a", "Baseline A (no parameter)")])
+    pp.legend(axes, [pp.key("ours", "Ours"), pp.key("a", "Baseline A (no parameter)")])
     finish(fig, "12_sensitivity")
 
 
@@ -312,7 +312,7 @@ def composition():
     m = np.array([[66, 21, 6, 7], [58, 13, 11, 18], [55, 8, 7, 30], [52, 0, 1, 47]], float)
     left = np.zeros(4)
     for j, (lab, role) in enumerate(zip(labels, colors)):
-        col = pp.ROLES[role].color
+        col = pp.tint(role, 0.55)
         ax.barh(range(4), m[:, j] - 0.5, left=left + 0.25, height=0.66, color=col, zorder=2)
         for i, v in enumerate(m[:, j]):
             if v >= 8:
@@ -321,7 +321,7 @@ def composition():
     ax.set_yticks(range(4), names)
     ax.set(xlim=(0, 100), ylim=(3.5, -0.5), xlabel="share of questions (%)")
     ax.grid(False)
-    pp.legend_below(fig, [mpl.patches.Patch(color=pp.ROLES[r].color, label=l) for r, l in zip(colors, labels)])
+    pp.legend(ax, [mpl.patches.Patch(color=pp.tint(r, 0.55), label=l) for r, l in zip(colors, labels)])
     finish(fig, "13_composition")
 
 
@@ -352,11 +352,105 @@ def before_after():
     finish(fig, "14b_house_style")
 
 
+def scene(blur=9):
+    """Invented picture of a bottle on a table, blurred so that the label cannot be read."""
+    h, w = 240, 380
+    yy, xx = np.mgrid[0:h, 0:w]
+    img = np.dstack([0.78 - 0.2 * yy / h, 0.84 - 0.16 * yy / h, 0.92 - 0.1 * yy / h])
+    img[yy > 175] = (0.55, 0.40, 0.27)
+    bottle = (np.abs(xx - 190) < 34) & (yy > 62) & (yy < 188) | (np.abs(xx - 190) < 13) & (yy > 22) & (yy <= 62)
+    img[bottle] = (0.16, 0.42, 0.34)
+    label = (np.abs(xx - 190) < 34) & (yy > 100) & (yy < 150)
+    img[label] = (0.93, 0.90, 0.78)
+    img[label & (np.abs(yy - 118) < 4) & (np.abs(xx - 190) < 24)] = (0.2, 0.2, 0.25)
+    img[label & (np.abs(yy - 133) < 3) & (np.abs(xx - 190) < 18)] = (0.2, 0.2, 0.25)
+    out = img.copy()
+    for axis in (0, 1):  # three box-blur passes per axis
+        for _ in range(3):
+            c = np.cumsum(out, axis=axis)
+            k = 2 * blur + 1
+            c = np.concatenate([np.take(c, [0] * (blur + 1), axis=axis) * 0, c,
+                                np.repeat(np.take(c, [-1], axis=axis), blur, axis=axis)], axis=axis)
+            out = (np.take(c, range(k, c.shape[axis]), axis=axis) - np.take(c, range(c.shape[axis] - k), axis=axis)) / k
+    edge = blur + 1
+    return np.clip(out[edge:-edge, edge:-edge], 0, 1)
+
+
+def method_figure():
+    fig, ax = pp.canvas("double", h=2.62)
+    pp.note(ax, 0.55, 2.0, "Input image", bold=True)
+    pp.image(ax, scene(), 0.08, 1.02, 0.95, 0.86)
+
+    # Existing model, in gray with an ink path.
+    pp.arrow(ax, [(1.03, 1.68), (1.45, 2.08)])
+    pp.trapezoid(ax, 1.45, 2.08, 0.9, 0.86, 0.44, "Vision\nencoder")
+    pp.arrow(ax, [(2.35, 2.08), (4.0, 2.08), (4.0, 1.98)])
+    pp.box(ax, 4.45, 2.38, 1.72, 0.18, "Question: What does the label say?", bold=False, size=7)
+    pp.arrow(ax, [(5.0, 2.38), (5.0, 1.98)])
+
+    # The added module, in blue with a dashed outline and a blue path.
+    pp.arrow(ax, [(1.03, 1.25), (1.42, 0.97)], role="ours")
+    pp.box(ax, 1.42, 0.42, 0.96, 1.04, role="ours", dashed=True, shade=0.08)
+    pp.trapezoid(ax, 1.52, 0.98, 0.76, 0.84, 0.5, "Answer-\nability\nprobe", role="ours", shade=0.42, size=7)
+    pp.note(ax, 1.9, 0.27, "Added module", bold=True)
+    pp.arrow(ax, [(2.38, 1.25), (2.72, 1.25), (2.72, 1.88), (2.95, 1.88)], role="ours")
+
+    # Tokens and decoder.
+    end = pp.tokens(ax, 3.0, 1.8, 4, "ours")
+    pp.box(ax, 2.95, 1.76, end - 2.95 + 0.05, 0.23, role="ours", dashed=True, shade=0, radius=0.03, zorder=1)
+    end = pp.tokens(ax, 3.6, 1.8, 8, "base")
+    pp.tokens(ax, end + 0.13, 1.8, 7, "base", hollow=True)
+    pp.arrow(ax, [(4.13, 1.76), (4.13, 1.62)])
+    pp.box(ax, 2.95, 1.36, 2.4, 0.26, "Language decoder")
+
+    # Scores, with a real example inside each card.
+    pp.arrow(ax, [(3.35, 1.36), (3.35, 1.15)], role="ours")
+    pp.arrow(ax, [(4.95, 1.36), (4.95, 1.15)])
+    pp.note(ax, 2.95, 0.78, r"$\gamma\,\log\,($", size=8, ha="right")
+    pp.score_card(ax, 2.97, 0.42, 0.76, 0.72, [("unclear", "0.70"), ("Acme", "0.20"), ("blue", "0.10")], "ours")
+    pp.note(ax, 4.15, 0.78, r"$)\;+\;(1-\gamma)\,\log\,($", size=8)
+    pp.score_card(ax, 4.57, 0.42, 0.76, 0.72, [("Acme", "0.50", True), ("unclear", "0.30"), ("blue", "0.20")], "base")
+    pp.note(ax, 5.35, 0.78, r"$)$", size=8, ha="left")
+    pp.arrow(ax, [(5.43, 0.78), (5.6, 0.78)])
+    pp.score_card(ax, 5.6, 0.42, 0.76, 0.72, [("unclear", "0.54"), ("Acme", "0.31"), ("blue", "0.14")], "ours", strong=True)
+
+    # Readout of the final answer.
+    pp.note(ax, 6.42, 1.0, "The\nlabel\nis", ha="left", color=pp.MUTED, linespacing=1.05)
+    pp.note(ax, 6.42, 0.74, "unclear", bold=True, ha="left")
+    pp.arrow(ax, [(3.35, 0.42), (3.35, 0.14), (5.98, 0.14), (5.98, 0.42)], role="ours")
+    pp.note(ax, 4.66, 0.27, "Mix the scores before choosing a word", bold=True, size=7)
+    finish(fig, "15_method_figure")
+
+
+def qualitative_example():
+    H = 2.16
+    fig, ax = pp.canvas("double", h=H)
+    left, right, top = 0.04, 2.62, H - 0.04
+    pp.image(ax, scene()[10:190], left, top - 1.22, 2.44, 1.22)
+    reference = ["The image is too blurred to read the label. A tall green bottle stands on a table in front of a window, but",
+                 "no letters can be made out, so the correct response is that the text cannot be read."]
+    pp.text_card(ax, left, top - 1.26, 2.44, "Reference answer", reference, "b", "R")
+
+    y = pp.text_card(ax, right, top, 4.2, None, ["Question: What is written on the label of the bottle?"], "c", shade=0.12)
+    pp.badge(ax, right + 4.08, top - 0.1, "Q", "c")
+    base = ["The label on the bottle reads", ("\"Acme Spring Water\"", "error"), "in", ("dark blue letters,", "error"),
+            "which shows that the drink is bottled water. The", ("small mountain logo below the brand name", "error"),
+            "suggests that the water comes from a natural spring. The bottle stands on a wooden table next to a window,",
+            "and the light from outside falls across its front."]
+    y = pp.text_card(ax, right, y - 0.08, 4.2, "Base model after robust fine-tuning", base, "base", "B", shade=0.2)
+    ours = ["The label is too blurred for me to read, so I cannot say what is written on it. I can see a tall green bottle",
+            "with a pale label, standing on a wooden table in front of a window. A sharper photo of the label would let me",
+            "answer the question, because the letters on this one cannot be told apart at all."]
+    pp.text_card(ax, right, y - 0.08, 4.2, "Ours", ours, "ours", "O", shade=0.2)
+    finish(fig, "16_qualitative_example")
+
+
 def main():
     OUT.mkdir(exist_ok=True)
     pp.use("cvpr")
     demos = [learning_curves, risk_coverage, grouped_bars, aggregate_intervals, dumbbell, reliability, heatmap, violin,
-             pareto, ablation, performance_profile, sensitivity, composition, before_after]
+             pareto, ablation, performance_profile, sensitivity, composition, before_after, method_figure,
+             qualitative_example]
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         for demo in demos:

@@ -23,8 +23,12 @@ import matplotlib.patheffects as patheffects
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.image import imread, imsave
+from matplotlib.collections import PathCollection
+from matplotlib.font_manager import FontProperties
 from matplotlib.lines import Line2D
-from matplotlib.patches import Patch
+from matplotlib.patches import Circle, FancyArrowPatch, FancyBboxPatch, Patch, Polygon, Rectangle
+from matplotlib.path import Path as MplPath
+from matplotlib.textpath import text_to_path
 from matplotlib.transforms import Bbox
 
 # Text widths in inches, measured from each venue's official style file.
@@ -65,6 +69,10 @@ ROLES = {
     "oracle": Role("#333333", "", (0, (4, 2)), "", 1.0),
 }
 
+# Bars use light shades. Ours keeps a slightly stronger shade so it still reads first.
+BAR_SHADE = 0.46
+OURS_BAR_SHADE = 0.66
+
 logging.getLogger("fontTools").setLevel(logging.ERROR)  # silences harmless cmr10 timestamp messages
 
 MIN_FONT_PT = 6.0
@@ -100,6 +108,7 @@ def use(venue: str = "cvpr", font: str = "cm", base: float = 8.0, tex: bool = Fa
         raise ValueError("font must be 'cm' or 'sans'")
     mpl.rcParams.update(family)
     mpl.rcParams.update({
+        "font.sans-serif": ["Arial", "Helvetica", "DejaVu Sans"],  # qualitative cards use sans at any setting
         "font.size": base,
         "axes.labelsize": base,
         "axes.titlesize": base,
@@ -176,12 +185,21 @@ def line(ax, x, y, role="ours", label=None, lo=None, hi=None, marker=False, mark
     return ax.plot(x, y, **opts)[0]
 
 
-def bar(ax, x, h, width, role="ours", err=None, horizontal=False, alpha=1.0, **kw):
-    """Bar from zero. Hatch is drawn in white on the fill, and whiskers are thin and dark."""
+def tint(role_or_color, shade=BAR_SHADE):
+    """Opaque light shade of a role or colour, mixed with white. shade=1 is the full colour."""
+    color = ROLES[role_or_color].color if role_or_color in ROLES else role_or_color
+    return tuple(shade * c + (1 - shade) for c in mpl.colors.to_rgb(color))
+
+
+def _bar_shade(role, shade=None):
+    return shade if shade is not None else (OURS_BAR_SHADE if role == "ours" else BAR_SHADE)
+
+
+def bar(ax, x, h, width, role="ours", err=None, horizontal=False, shade=None, **kw):
+    """Light-shaded bar from zero. The hatch uses the full role colour, and whiskers are thin and dark."""
     r = ROLES[role]
-    # A tint mixed with white, not real transparency, so gridlines do not show through the bar.
-    color = tuple(alpha * c + (1 - alpha) for c in mpl.colors.to_rgb(r.color))
-    opts = dict(color=color, hatch=r.hatch, edgecolor="white", linewidth=0, zorder=2)
+    # Mixed with white rather than transparent, so gridlines do not show through the bar.
+    opts = dict(color=tint(role, _bar_shade(role, shade)), hatch=r.hatch, edgecolor=r.color, linewidth=0, zorder=2)
     opts.update(kw)
     if horizontal:
         out = ax.barh(x, h, height=width, **opts)
@@ -200,10 +218,69 @@ def key(role, label, kind="line"):
     """Legend handle for a role. kind: 'line', 'marker', or 'patch'."""
     r = ROLES[role]
     if kind == "patch":
-        return Patch(facecolor=r.color, hatch=r.hatch, edgecolor="white", linewidth=0, label=label)
+        return Patch(facecolor=tint(role, _bar_shade(role)), hatch=r.hatch, edgecolor=r.color, linewidth=0, label=label)
     if kind == "marker":
         return Line2D([], [], ls="none", marker=r.marker, color=r.color, markersize=4.5, label=label)
     return Line2D([], [], color=r.color, ls=r.ls, lw=r.lw, label=label)
+
+
+_LEGEND_LOCS = ("best", "upper right", "upper left", "lower right", "lower left", "upper center", "lower center",
+                "center right", "center left")
+
+
+def _legend_hits(ax, leg, renderer):
+    """True if the legend box covers a line, marker, band, bar, or text in its axes."""
+    leg.draw(renderer)
+    b = leg.get_window_extent(renderer)
+    box = Bbox.from_extents(b.x0 - 1, b.y0 - 1, b.x1 + 1, b.y1 + 1)
+    for ln in ax.get_lines():
+        path = ln.get_transform().transform_path(ln.get_path())
+        if ln.get_linestyle() not in ("None", "none", "") and ln.get_linewidth() > 0 and path.intersects_bbox(box, filled=False):
+            return True
+        if ln.get_marker() not in (None, "None", "none", ""):
+            if any(box.contains(*v) for v in path.vertices):
+                return True
+    for patch in ax.patches:
+        if patch.get_window_extent(renderer).overlaps(box):
+            return True
+    for coll in ax.collections:
+        if isinstance(coll, PathCollection):
+            if any(box.contains(*v) for v in coll.get_offset_transform().transform(coll.get_offsets())):
+                return True
+        else:
+            trans = coll.get_transform()
+            if any(trans.transform_path(q).intersects_bbox(box, filled=True) for q in coll.get_paths()):
+                return True
+    return any(t.get_window_extent(renderer).overlaps(box) for t in ax.texts)
+
+
+def legend(axes, handles=None, ncols=None, **kw):
+    """One legend at the best location: the first free spot inside the plot, checked against the data.
+
+    Call it last, after limits are set. With several panels it uses whichever panel has room.
+    If nothing is free, for example on stacked bars that fill the frame, it goes below the panels.
+    """
+    axes = list(np.atleast_1d(axes).flat)
+    fig = axes[0].figure
+    if handles is None:
+        handles = axes[0].get_legend_handles_labels()[0]
+    fig.canvas.draw()
+    renderer = fig.canvas.get_renderer()
+    opts = dict(frameon=True, facecolor="white", edgecolor="none", framealpha=1.0, borderpad=0.25)
+    opts.update(kw)
+    for ncol in ([ncols] if ncols else range(1, min(len(handles), 3) + 1)):
+        for ax in axes:
+            for loc in _LEGEND_LOCS:
+                leg = ax.legend(handles=handles, loc=loc, ncol=ncol, **opts)
+                if not _legend_hits(ax, leg, renderer):
+                    return leg
+                leg.remove()
+    for ncol in range(len(handles), 0, -1):  # widest row that still fits the figure
+        leg = legend_below(fig, handles, ncol=ncol)
+        fig.canvas.draw()
+        if ncol == 1 or leg.get_window_extent(renderer).width < 0.98 * fig.bbox.width:
+            return leg
+        leg.remove()
 
 
 def legend_below(fig, handles, ncol=None):
@@ -243,6 +320,135 @@ def ink_on(color) -> str:
     """Black or white text, whichever is readable on `color`."""
     r, g, b = _to_linear(np.array(mpl.colors.to_rgb(color)))
     return INK if 0.2126 * r + 0.7152 * g + 0.0722 * b > 0.179 else "white"  # WCAG contrast crossover
+
+
+# Method figures and qualitative examples -----------------------------------------------------
+
+def _bold():
+    """Bold text settings. Computer Modern has a separate bold font."""
+    serif = mpl.rcParams["font.family"][0] == "serif" and not mpl.rcParams["text.usetex"]
+    return {"family": "cmb10"} if serif else {"weight": "bold"}
+
+
+def canvas(span="double", h=2.5):
+    """Blank drawing area at exact print size, with coordinates in inches from the bottom-left corner."""
+    w = size(span)[0]
+    fig = plt.figure(figsize=(w, h), layout="none")
+    ax = fig.add_axes([0, 0, 1, 1])
+    ax.set(xlim=(0, w), ylim=(0, h), xticks=[], yticks=[])
+    ax.set_axis_off()
+    return fig, ax
+
+
+def note(ax, x, y, text, bold=False, size=7.5, ha="center", va="center", color=INK, **kw):
+    """Free text on a canvas."""
+    return ax.text(x, y, text, ha=ha, va=va, fontsize=size, color=color, **(_bold() if bold else {}), **kw)
+
+
+def box(ax, x, y, w, h, text="", role="base", dashed=False, bold=True, size=7.5, shade=0.2, radius=0.05, zorder=2):
+    """Rounded component. role='base' is existing machinery, 'ours' is what the paper adds."""
+    color = ROLES[role].color
+    ax.add_patch(FancyBboxPatch((x, y), w, h, boxstyle=f"round,pad=0,rounding_size={radius}", fc=tint(role, shade), ec=color,
+                                lw=0.7, ls=(0, (3, 2)) if dashed else "-", zorder=zorder))
+    if text:
+        note(ax, x + w / 2, y + h / 2, text, bold=bold, size=size, zorder=zorder + 1)
+
+
+def trapezoid(ax, x, cy, w, left, right, text="", role="base", bold=True, size=7.5, shade=0.2):
+    """Encoder-style block, centred at height cy, with the given left and right edge heights."""
+    pts = [(x, cy - left / 2), (x + w, cy - right / 2), (x + w, cy + right / 2), (x, cy + left / 2)]
+    ax.add_patch(Polygon(pts, closed=True, fc=tint(role, shade), ec=ROLES[role].color, lw=0.7, zorder=2))
+    if text:
+        note(ax, x + w / 2, cy, text, bold=bold, size=size, zorder=3)
+
+
+def arrow(ax, points, role=None, lw=1.3, dashed=False):
+    """Arrow along a polyline. No role draws the existing path in ink; role='ours' draws the added path."""
+    color = ROLES[role].color if role else INK
+    ax.add_patch(FancyArrowPatch(path=MplPath(points), arrowstyle="-|>,head_length=3.6,head_width=1.9", mutation_scale=1,
+                                 color=color, lw=lw, ls=(0, (3, 2)) if dashed else "-", joinstyle="miter",
+                                 capstyle="butt", zorder=1))
+
+
+def tokens(ax, x, y, n, role="base", w=0.085, h=0.15, gap=0.022, shade=0.55, hollow=False):
+    """A row of n small token boxes; returns the x position after the last one."""
+    for i in range(n):
+        box(ax, x + i * (w + gap), y, w, h, role=role, shade=0 if hollow else shade, radius=0.025)
+    return x + n * (w + gap) - gap
+
+
+def score_card(ax, x, y, w, h, rows, role="base", strong=False, size=7):
+    """Card of (label, value) rows so the figure shows real output. Add True as a third item to mark an error."""
+    box(ax, x, y, w, h, role=role, shade=0.5 if strong else 0.2, radius=0.06)
+    step = h / (len(rows) + 0.3)
+    for i, row in enumerate(rows):
+        error = len(row) > 2 and row[2]
+        note(ax, x + w / 2, y + h - step * (i + 0.65), f"{row[0]}: {row[1]}", bold=True, size=size, zorder=3,
+             color=ROLES["a"].color if error else INK)
+
+
+def image(ax, array, x, y, w, h):
+    """Place a picture on a canvas at an exact position."""
+    xlim, ylim = ax.get_xlim(), ax.get_ylim()
+    ax.imshow(array, extent=(x, x + w, y, y + h), aspect="auto", zorder=2, interpolation="bilinear")
+    ax.set(xlim=xlim, ylim=ylim)
+
+
+def badge(ax, x, y, letter, role="base", r=0.075):
+    """Small round speaker mark for a question or a model response."""
+    ax.add_patch(Circle((x, y), r, fc=ROLES[role].color, ec="white", lw=0.8, zorder=5))
+    ax.text(x, y - 0.002, letter, ha="center", va="center", fontsize=6.2, color=ink_on(ROLES[role].color), zorder=6,
+            family="sans-serif", weight="bold")
+
+
+def text_card(ax, x, top, w, title, spans, role="base", letter=None, size=7.0, shade=0.2, pad=0.07):
+    """Tinted response card with a bold title and wrapped text; returns the y of its bottom edge.
+
+    spans is a list of strings or (string, style), where style is 'error' (red and underlined) or 'bold'.
+    """
+    plain, heavy = (FontProperties(family="sans-serif", size=size, weight=w_) for w_ in ("normal", "bold"))
+
+    def width(word, prop):
+        return text_to_path.get_text_width_height_descent(word, prop, False)[0] / 72
+
+    space = width("n n", plain) - width("nn", plain)
+    words = []
+    for span in spans:
+        text, style = span if isinstance(span, tuple) else (span, None)
+        words += [(word, style) for word in text.split()]
+    limit = w - 2 * pad
+    lines, current, used = [], [], 0.0
+    for word, style in words:
+        wide = width(word, heavy if style == "bold" else plain)
+        if current and used + wide > limit:
+            lines.append(current)
+            current, used = [], 0.0
+        current.append((word, style, wide))
+        used += wide + space
+    if current:
+        lines.append(current)
+    lead = size * 1.27 / 72
+    head = lead * 1.25 if title else 0.0
+    height = 2 * pad + head + lead * len(lines)
+    ax.add_patch(Rectangle((x, top - height), w, height, fc=tint(role, shade), ec="none", zorder=1))
+    y = top - pad
+    if title:
+        ax.text(x + pad + (0.16 if letter else 0), y - lead / 2, title, ha="left", va="center", fontsize=size, color=INK,
+                family="sans-serif", weight="bold", zorder=3)
+        if letter:
+            badge(ax, x + pad + 0.05, y - lead / 2, letter, role)
+        y -= head
+    error = ROLES["a"].color
+    for row in lines:
+        cx = x + pad
+        for word, style, wide in row:
+            ax.text(cx, y - lead / 2, word, ha="left", va="center", fontsize=size, family="sans-serif", zorder=3,
+                    color=error if style == "error" else INK, weight="bold" if style == "bold" else "normal")
+            if style == "error":
+                ax.add_patch(Rectangle((cx, y - lead + 0.006), wide + space, 0.007, fc=error, ec="none", zorder=3))
+            cx += wide + space
+        y -= lead
+    return top - height
 
 
 # Statistics -----------------------------------------------------------------------------------
@@ -318,7 +524,7 @@ def _visible_texts(fig):
 
 
 def lint(fig):
-    """Mechanical checks: font size, line width, clipped text, text collisions, text over lines."""
+    """Mechanical checks: font size, line width, clipped text, text collisions, text over lines, legends over data."""
     problems = []
     fig.canvas.draw()
     renderer = fig.canvas.get_renderer()
@@ -345,6 +551,8 @@ def lint(fig):
                     problems.append(f"text overlap: {texts[i].get_text()!r} / {texts[j].get_text()!r}")
     for ax in fig.axes:
         frame = ax.get_window_extent(renderer)
+        if ax.get_legend() and _legend_hits(ax, ax.get_legend(), renderer):
+            problems.append("legend covers data")
         for ln in ax.get_lines():
             if ln.get_linestyle() != "None" and 0 < ln.get_linewidth() < MIN_LINE_PT:
                 problems.append(f"line {ln.get_linewidth()} pt below {MIN_LINE_PT} pt")
@@ -408,7 +616,8 @@ def print_check(png, out=None):
     return out
 
 
-__all__ = ["use", "size", "line", "bar", "key", "legend_below", "shared_xlabel", "label_end", "tag", "ink_on", "boot_ci",
+__all__ = ["use", "size", "line", "bar", "tint", "key", "legend", "legend_below", "canvas", "note", "box", "trapezoid",
+           "arrow", "tokens", "score_card", "image", "badge", "text_card", "shared_xlabel", "label_end", "tag", "ink_on", "boot_ci",
            "iqm", "paired_p", "p_text", "save", "lint", "check_pdf_fonts", "print_check", "ROLES", "VENUES",
            "INK", "MUTED", "GRID", "SEQ_CMAP", "DIV_CMAP"]
 

@@ -1,19 +1,6 @@
 \section{Related Work}
 \label{sec:related}
 
-\begin{figure*}[t]
-\centering
-\includegraphics[width=\textwidth]{figures/method.pdf}
-\caption{\textbf{Overview.} Robust fine-tuning (RKL or GRPO) raises accuracy but lowers
-abstention. LATCH restores it with frozen weights: a latent check, fitted once per model on
-a calibration set $\mathcal{C}$, replaces the answer by ``unanswerable'' when the probe
-logit $s$ exceeds $\tau_{\mathrm{p}}$ ($P(\text{unanswerable}) > 0.88$). $(x, q)$: image and
-question; $y$: response; $u$: answerability label ($u = 1$: unanswerable);
-$\mathrm{BCE}_\rho$: binary cross-entropy that weights the $N_1$ unanswerable calibration
-items by $\rho = N_0/N_1$, with $N_0$ answerable items. The two baselines are drawn in \cref{fig:supp_retrain,fig:supp_steer}.}
-\label{fig:method}
-\end{figure*}
-
 \paragraph{Visual understanding.}
 Instruction-tuned VLMs built on strong language backbones are now the default interface
 for image understanding~\cite{qwen3vl2025,wang2025internvl35,gemmateam2025gemma3technicalreport}.
@@ -64,9 +51,11 @@ attaching an unanswerability head~\cite{vardi2025clipup}. Closest to us, two con
 works find that VLMs know more than they say: linear probes decode answerability from
 hidden states even when the final answer ignores it, in physical-reasoning
 videos~\cite{pramono2026trapsbench} and in static images~\cite{he2026knowing}, where
-Rep2Act closes the gap by fine-tuning. All of this work studies a \emph{fixed} model. We
-show that the gap moves: corruption-robust post-training widens it, at the reasoning step
-for distillation and at the answer step for GRPO. Like CLIP-UP, LATCH adds a
+Rep2Act closes the gap by fine-tuning. The work above studies a \emph{fixed} model, and
+reward-based VLM training is already known to weaken abstention \TODO{cite Jian et al.}.
+Comparing the same questions before and after fine-tuning, we show that the gap moves:
+corruption-robust post-training widens it, at the reasoning step for distillation and at
+the answer step for GRPO. Like CLIP-UP, LATCH adds a
 light classifier and leaves the backbone untouched, but it reads each fine-tuned model's
 own hidden states and, unlike Rep2Act, changes no weights.
 

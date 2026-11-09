@@ -75,22 +75,21 @@ Visual Abstention in Vision-Language Models}
 Paper ID \paperID}
 
 % Full-width teaser under the title (official CVPR kit pattern).
-% Source: figures/src/fig1_qual.tex
+% Source: figures/src/fig1_paired.tex
 \twocolumn[{%
 \renewcommand\twocolumn[1][]{#1}%
 \maketitle
 \begin{center}
   \centering
-  \includegraphics[width=\textwidth]{figures/teaser_qual.pdf}
-  \captionof{figure}{\textbf{Corruption-robust post-training makes a VLM answer what it cannot
-  see, although it still knows.} Left: Qwen3-VL-4B on a motion-blurred GQA image (A) and an
-  unanswerable VizWiz photo (B). Robust fine-tuning (GRPO) corrects the base model on A, but
-  on B it answers ``3232'' where the base model refuses, although a linear probe on its hidden
-  state still reads B as unanswerable. LATCH (ours) acts on this signal: it refuses on B and
-  keeps the correct answer on A. Right: on three backbones, robust fine-tuning (RKL or GRPO)
-  raises corrupted accuracy but lowers correct refusals on unanswerable VizWiz questions
-  (dashed); LATCH recovers the refusals and keeps most of the accuracy gain (solid). Numbers
-  are from \cref{tab:main}.}
+  \includegraphics[width=\textwidth]{figures/teaser_paired.pdf}
+  \captionof{figure}{\textbf{After fine-tuning, a VLM still reads the answer when it is visible
+  but stops abstaining when it is gone.} One question on three versions of one TextVQA image:
+  the original, a control with a same-shape region inpainted elsewhere, and the image with the
+  answer text inpainted. Qwen3-VL-4B reads the number on the first two before and after GRPO
+  fine-tuning; on the third, the base model abstains and GRPO answers ``3''. Over $468$ such
+  questions, GRPO raises control accuracy from $86.5\%$ to $92.1\%$ and lowers abstention on
+  the removed image from $50.6\%$ to $24.8\%$ (\cref{tab:paired}). The example is one on which
+  both models answer the original and control correctly and differ on the removed image.}
   \label{fig:teaser}
 \end{center}
 \vspace{4pt}
@@ -99,8 +98,7 @@ Paper ID \paperID}
 \input{sec/0_abstract}
 \input{sec/1_intro}
 \input{sec/2_related}
-\input{sec/3_problem}
-\input{sec/4_method}
+\input{sec/3_method}
 \input{sec/5_experiments}
 \input{sec/6_conclusion}
 \input{sec/7_llm_statement}

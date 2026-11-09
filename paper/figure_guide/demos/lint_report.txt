@@ -12,3 +12,5 @@
 12_sensitivity: OK
 13_composition: OK
 14b_house_style: OK
+15_method_figure: OK
+16_qualitative_example: OK

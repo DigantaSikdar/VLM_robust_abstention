@@ -1,6 +1,6 @@
 # Figure guideline for NeurIPS, ICML, ICLR, and CVPR papers
 
-Version 1, 2026-11-08. The code that applies these rules is [paperplot.py](paperplot.py), and every rule is shown in [demos/](demos/) (made by [make_demos.py](make_demos.py), with invented data only).
+Version 1.1, 2026-11-09. The code that applies these rules is [paperplot.py](paperplot.py), and every rule is shown in [demos/](demos/) (made by [make_demos.py](make_demos.py), with invented data only).
 
 ```python
 import matplotlib.pyplot as plt
@@ -33,6 +33,8 @@ pp.save(fig, "figures/my_plot")                         # .pdf + .png, then auto
 | Robust comparison of score distributions | Performance profile | 11 |
 | Hyperparameter sensitivity | Log-x line with baseline band and default marker | 12 |
 | Part-to-whole outcomes | 100% stacked bars | 13 |
+| How the method works | Method figure with a worked example (Section 9) | 15 |
+| What the model actually says | Qualitative response cards (Section 10) | 16 |
 
 Avoid pie charts, 3D plots, radar charts for numeric comparison, and dual y-axes. Split two scales into two panels.
 
@@ -59,9 +61,9 @@ Never use `bbox_inches="tight"`: it changes the output width, so LaTeX rescales 
 ## 3. Text
 
 - Axis labels 8 pt, ticks and legend 7-7.5 pt, nothing below 6 pt.
-- Computer Modern serif by default, matching the math in the paper. Use `font="sans"` for slides and posters.
+- Computer Modern serif by default, matching the math in the paper. Use `font="sans"` for slides and posters. Long model responses in qualitative cards are set in sans.
 - Lowercase axis labels with units: `accuracy (%)`. Capitalize only proper names and method names.
-- Regular weight everywhere. Bold is for panel tags only.
+- Regular weight in plots, with bold only for panel tags. Method figures use bold component labels, and qualitative cards use bold titles.
 - No figure titles; the caption does that job. Panel titles name the dataset or condition.
 - Use math mode for real minus signs and symbols: `$-1.2$`, not `-1.2`.
 
@@ -84,7 +86,8 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 - Variants of one idea share a hue. Ablations use tints of `ours`.
 - Sequential data: `viridis`. Signed data: `BrBG`, centred at exactly zero. Never `jet` or rainbow.
 - Do not use red and green to mean good and bad in heatmaps, because colorblind readers confuse them and red is a method color.
-- Text is ink or muted gray, not the series color.
+- Light bar shades do not separate methods by color alone. At the default shades the validator gives a worst normal-vision ΔE of 8.0, a worst colorblind ΔE of 3.8, and contrast of 1.6-2.4:1 against white. Every baseline bar therefore keeps its hatch, drawn in the full role color.
+- Text is ink or muted gray, not the series color. The one exception is a wrong span in a qualitative card, which is red and underlined.
 
 ## 5. Marks and chrome
 
@@ -92,7 +95,7 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 - 3-5 ticks per axis. Remove the grid along a categorical axis.
 - Lines 1.2 pt, `ours` 1.7 pt, nothing under 0.5 pt (ICML template).
 - Bands: same hue at 18% opacity, no edge. Whiskers: 0.6 pt dark with small caps.
-- Bars have small white gaps and white hatches, not black outlines.
+- Bars use light shades, mixed with white so gridlines do not show through: 46% of the role color for baselines and 66% for `ours`, so ours still reads first (`pp.bar`). Use small white gaps, no outlines, and hatches in the full role color.
 - Markers only with few x positions. Dense curves rely on color and dash.
 
 ## 6. Honest axes
@@ -113,14 +116,41 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 
 ## 8. Legends, labels, and panels
 
-- Single panel with well-separated curves: direct labels, no legend.
-- Multiple panels: one frameless legend below everything, `Ours` first (`pp.legend_below`).
-- Never put a label on top of a line. `pp.save` warns if you do.
+- Put the legend at the best location: the free spot inside the plot that covers no line, band, bar, or label. `pp.legend` finds it and verifies it. Call it last, after the limits are set.
+- If no spot is free, add headroom by raising the y-limit while keeping the ticks in the real range (demos 02, 03), and stop reference lines short of the free area (demo 12).
+- Multiple panels: one legend, `Ours` first, in whichever panel has room.
+- A legend goes below the figure only when the plot truly has no free space, as with 100% stacked bars or dense small multiples (demos 01, 13). `pp.legend` falls back to this by itself.
+- Few, well-separated curves can use direct labels instead of a legend.
+- Never put a label or legend on top of data. `pp.save` warns if you do.
 - Label values only where the reader needs them, usually `ours` or the best baseline. Otherwise use a table.
 - Show y-labels only on the leftmost panel with shared axes. Use one shared x-label (`pp.shared_xlabel`).
 - Use `pp.tag` for (a), (b), (c) only when the text refers to individual panels.
 
-## 9. Export
+## 9. Method figures
+
+Demo 15 draws this style with `pp.canvas`, `pp.box`, `pp.trapezoid`, `pp.arrow`, `pp.tokens`, `pp.score_card`, and `pp.image`. The rules also apply in draw.io or TikZ.
+
+- Read left to right: the input on the left, one main path, the final answer on the right.
+- Use two tones. Existing parts are pale gray (`base`), and everything the paper adds is blue (`ours`), matching the plots.
+- Mark what is new twice: a dashed outline around the added module, and blue arrows for its path. Existing paths use ink arrows.
+- Arrows are thick (about 1.3 pt), straight or right-angled, and do not cross.
+- Run one real example through the pipeline: the actual image, the actual question, tokens as small boxes, real numbers inside the score cards, and the final answer as text with the deciding word in bold.
+- Put the key equation in the flow, at the place where it happens, so the cards become its terms.
+- Rounded boxes for modules, trapezoids for encoders. Labels are short and bold at 7-8 pt, never below 6 pt.
+- Export as vector PDF at the printed width. Photos inside it follow the raster rules in Section 11.
+
+## 10. Qualitative examples
+
+Demo 16 builds this layout with `pp.text_card` and `pp.badge`.
+
+- Layout: image top left with the reference below it, the question in a band across the top right, and model responses stacked under the question.
+- One pale card per model, in that method's color: `ours` blue, `base` gray, reference amber. No dark borders.
+- Each card has a bold title and a small round badge, with the response in 7 pt sans.
+- Mark only the wrong words, in red and underlined. Red alone is hard to see with deuteranopia. Leave correct text alone.
+- Show every model on the same input, with outputs verbatim. If you shorten one, write `[...]` and say so in the caption.
+- Say how examples were chosen, and include at least one failure of your own method in the paper or supplement.
+
+## 11. Export
 
 - Plots are vector PDF, with `rasterized=True` only for very dense scatters (over about 5k points).
 - Raster content: PNG for sharp images, JPEG for photographs, at least 300 dpi at printed size.
@@ -128,15 +158,15 @@ The fixed slots below passed a palette validator (all-pairs, white background): 
 - **ICML's template asks for embedded Type-1 only**, and matplotlib's default embeds TrueType. For ICML, render with `pp.use("icml", tex=True)` on a machine with LaTeX, then run `pdffonts paper.pdf`. NeurIPS objects to Type 3 and to non-embedded TrueType, so embedded TrueType fits its wording.
 - Keep the plotting script and data next to the figure, and have the script read the data from a file. Every number in a figure must be regenerable.
 
-## 10. Captions
+## 12. Captions
 
 - First sentence states the takeaway. Then define what is plotted, the band or whisker, n, and any abbreviations.
 - Caption goes below the figure. NeurIPS asks for lower-case captions except the first word and proper nouns.
 - The figure and caption should make sense without reading the main text.
 
-## 11. Before submission
+## 13. Before submission
 
-Automatic in `pp.save`: font size, line width, text clipped by the figure or frame, text collisions, text on lines, Type 3 or unembedded fonts.
+Automatic in `pp.save`: font size, line width, text clipped by the figure or frame, text collisions, text on lines, legends over data, Type 3 or unembedded fonts.
 
 By hand:
 
@@ -150,7 +180,7 @@ By hand:
 - [ ] `pdffonts paper.pdf` shows no Type 3 and everything embedded
 - [ ] Anonymous submission: no names, paths, or logos inside the figure
 
-## 12. Where the sources disagreed
+## 14. Where the sources disagreed
 
 | Topic | Swarm-Visualization | arXiv:2609.12278 | figures4papers | Decision |
 |---|---|---|---|---|
@@ -159,19 +189,20 @@ By hand:
 | Canvas | Not set (20 pt fonts imply shrinking) | Small panels | Up to 45×12 in | Exact print size |
 | Y-axis on bars | Not specified | Zero (Fig. 8) | Tightened to the data | Zero, or switch to dots |
 | Value labels | Not specified | None | On every bar | Selective |
-| Bar separation | Seaborn default | Plain fill | Black edges, hatch | White gaps, white hatch |
+| Bar fill | Seaborn default | Plain fill | Black edges, hatch | Light shades, white gaps, role-colored hatch |
 | Ours color | Not specified | Red | Blue | Blue |
-| Legend | `loc="best"` | Shared, below | Dedicated panel | Shared, below |
+| Legend | `loc="best"` | Shared, below | Dedicated panel | Best free spot inside the plot, verified; below only if none |
 | Statistics | Wilcoxon annotations | Shaded bands | Optional bands | Intervals always, exact paired p-values |
 | File output | 600 dpi `savefig` | Embedded rasters | PNG + PDF | Vector PDF + preview PNG |
 
-Taken from each: from Swarm, paired significance testing and run-level distributions; from arXiv:2609.12278, the overall look, shared legends, baseline bands on sweeps; from figures4papers, semantic color roles, hatches for print, tint-based ablations, consistent helper functions. Added from wider guidance: exact venue geometry and font rules, validated color, interval estimates, and automated checks.
+Taken from each: from Swarm, best-location legends, paired significance testing and run-level distributions; from arXiv:2609.12278, the overall look, shared legends, baseline bands on sweeps; from figures4papers, semantic color roles, hatches for print, tint-based ablations, consistent helper functions. The method-figure and qualitative-card styles and the light bar shades follow MARINE (arXiv:2402.08680). Added from wider guidance: exact venue geometry and font rules, validated color, interval estimates, and automated checks.
 
 ## Sources
 
 - [Swarm-Visualization](https://github.com/UTAustin-SwarmLab/Swarm-Visualization) (`general_utils.py`, `statistics_utils.py`)
 - [Palafox and Fridovich-Keil, arXiv:2609.12278](https://arxiv.org/pdf/2609.12278) (Figs. 4-8)
 - [figures4papers](https://github.com/ChenLiu-1996/figures4papers) (`design-theory.md`, `api.md`, `common-patterns.md`)
+- [MARINE, Mitigating Object Hallucination in Large Vision-Language Models via Image-Grounded Guidance, arXiv:2402.08680](https://arxiv.org/abs/2402.08680) (method figure, qualitative example, bar shades)
 - [Rougier, Droettboom, and Bourne, Ten Simple Rules for Better Figures](https://www.ncbi.nlm.nih.gov/pmc/articles/PMC4161295/)
 - [Agarwal et al., Deep RL at the Edge of the Statistical Precipice](https://arxiv.org/pdf/2108.13264)
 - [Paul Tol's color schemes, via khroma](https://rdrr.io/cran/khroma/man/tol.html), and the Okabe-Ito palette

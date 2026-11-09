@@ -8,6 +8,8 @@
 \renewcommand{\thefigure}{S\arabic{figure}}
 \setcounter{table}{0}
 \setcounter{figure}{0}
+\renewcommand{\thealgorithm}{S\arabic{algorithm}}
+\setcounter{algorithm}{0}
 % ============================================================
 \section{Evaluation Protocol}
 \label{sec:supp_eval}
@@ -270,7 +272,46 @@ Every question in this mix, answerable or not, carries the VizWiz note
 answer. For a destroyed item the clean image is the destroyed image itself, so an RKL
 teacher sees the same destroyed image as the student. These runs keep the main runs'
 budget of $3{,}750$ optimizer steps ($30{,}000$ questions), so they see $90\%$ of the
-mix. Fig.~\ref{fig:supp_retrain} shows the pipeline.
+mix, including roughly $3{,}000$ unanswerable questions in expectation.
+Fig.~\ref{fig:supp_retrain} shows the pipeline. Abstaining is imitated by RKL, whose teacher
+sees the same destroyed image, and rewarded by GRPO, where a well-formed refusal on these
+items earns $r_i = 1.1$ in \cref{eq:reward}. Severity $100$ is $20\times$ severity $5$. Each
+destroyed question keeps its wording, one question per image, and the mix is shuffled once
+(seed~$1$). \Cref{fig:destroyed_gqa} shows one item per style, and \cref{tab:destroyed}
+shows that the base models refuse almost every destroyed image.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_destroyed_gqa.pdf}
+\caption{\textbf{Destroyed-GQA.} One real item per destroyed style: the original GQA
+image (top) and the training input (bottom), corrupted far beyond the $1$--$5$ severity
+scale (severity $100$; $50$ for snow). The answer is replaced by ``unanswerable''; the
+$3{,}334$ items make up $10\%$ of the unanswerable mix}
+\label{fig:destroyed_gqa}
+\end{figure*}
+
+\begin{table}[tb]
+\centering
+\small
+\caption{\textbf{Both base models refuse almost every Destroyed-GQA image, which makes these
+images reliable ``unanswerable'' supervision.} Refusal rates of the 4B base model and its 8B
+teacher at destruction strength.}
+\label{tab:destroyed}
+% Assumed: 4B = Qwen3-VL-4B base, 8B = Qwen3-VL-8B teacher. Confirm.
+\begin{tabular}{@{}lcccc@{}}
+\toprule
+Type & Severity & \#Q & 4B refuses & 8B refuses \\
+\midrule
+Gaussian noise & 100 & 477 & 100\% & 100\% \\
+Gaussian blur  & 100 & 477 & 96\%  & 100\% \\
+motion blur    & 100 & 476 & 92\%  & 100\% \\
+rain           & 100 & 476 & 96\%  & 100\% \\
+overexposure   & 100 & 476 & 88\%  & 100\% \\
+night          & 100 & 476 & 92\%  & 92\%  \\
+snow           & 50  & 476 & 92\%  & 92\%  \\
+\bottomrule
+\end{tabular}
+\end{table}
 
 \begin{figure*}[t]
 \centering
@@ -792,6 +833,12 @@ confident tokens are left alone. Directions differ in norm across models, so $\l
 norm of the same nominal $\lambda$ applied to one fixed reference vector (from a
 Qwen3-VL-4B RKL model). One nominal $\lambda$ therefore means the same perturbation size for
 every model. Fig.~\ref{fig:supp_steer} shows both stages for the contrast direction.
+The layer is $\ell_{\mathrm{s}} = 18$ of $36$, upstream of the best probe layers ($23$--$24$,
+\cref{sec:rq1}), and the strength is $\alpha = 8$ for the image-contrast vector and
+$\alpha = 1$ for the no-image vector. The no-image vector uses $150$ pairs per dataset; only
+$184$ VizWiz-train pairs qualify for GRPO, against $1{,}365$ for RKL, because GRPO already
+refuses most no-image VizWiz questions. RKL is steered with the entropy gate at
+$\tau_{\mathrm{H}} = 0.5$ nats, GRPO always on.
 
 \begin{figure*}[t]
 \centering
@@ -805,6 +852,54 @@ GRPO. The no-image direction replaces the top row by the difference between a ba
 refusal and a fine-tuned answer, both passed through the fine-tuned model.}
 \label{fig:supp_steer}
 \end{figure*}
+
+\begin{algorithm}[t]
+\caption{\textbf{Contrastive activation steering pushes the fine-tuned model back toward
+the base model's refusal.} Shown for the image-contrast vector; the no-image vector
+changes lines 1--3 (see text). The weights are never modified.}
+\label{alg:steer}
+\begin{algorithmic}[1]
+\Require base $\pi_0$, fine-tuned $\pi_\theta$, pool $\mathcal{P}$ of unanswerable
+  VizWiz-train items, layer $\ell_{\mathrm{s}}$, scale $\alpha$, gate threshold
+  $\tau_{\mathrm{H}}$ ($\tau_{\mathrm{H}} < 0$: always on)
+\State $\mathcal{S} \gets \{(x, q) \in \mathcal{P} : \mathrm{ref}(y_0) = 1,\
+  \mathrm{ref}(y_\theta) = 0\}$, with $y_0, y_\theta$ the greedy responses of
+  $\pi_0, \pi_\theta$
+\State For each $(x, q) \in \mathcal{S}$, run $(x, q, y_\theta)$ through both models; collect
+  $h^{(\ell_{\mathrm{s}})}_{0,t} - h^{(\ell_{\mathrm{s}})}_{\theta,t}$ at every response
+  position $t$
+\State $v \gets$ mean of the collected differences, $v \in \mathbb{R}^{d}$
+\State On a test input, generate from $\pi_\theta$; at each decoding step $t$:
+\If{$\tau_{\mathrm{H}} < 0$ \textbf{or} $H_{t-1} > \tau_{\mathrm{H}}$}
+  \State $h^{(\ell_{\mathrm{s}})}_{\theta,t} \gets h^{(\ell_{\mathrm{s}})}_{\theta,t} + \alpha v$
+\EndIf
+\end{algorithmic}
+\end{algorithm}
+
+\paragraph{Algorithm.}
+Steering uses the intact representation, but changes the hidden states instead
+of reading them (\cref{alg:steer,fig:supp_steer}). We write $h^{(\ell)}_{0,t}$ and $h^{(\ell)}_{\theta,t}$
+for the layer-$\ell$ states of $\pi_0$ and $\pi_\theta$ at response position $t$. Line~1
+keeps exactly the calibration questions on which fine-tuning broke abstention, so that the
+vector captures what fine-tuning changed rather than refusal in general. Line~2 feeds the
+same text (image, question and $\pi_\theta$'s own response) through both models, so that the
+difference reflects the two models rather than two inputs. Line~3 averages over every
+response position of every selected question. Thus $v \in \mathbb{R}^{d}$ points from the
+fine-tuned model's over-confident state toward the base model's ``this image does not
+support an answer'' state. The \emph{no-image} vector targets a missing image instead: it
+pairs questions asked without their image on which $\pi_0$ refuses and $\pi_\theta$
+answers, runs the question followed by the base refusal and the question followed by the
+fine-tuned answer through $\pi_\theta$, and averages the difference of the
+response-averaged states. Lines~4--6 add $\alpha v$ to the residual stream at layer
+$\ell_{\mathrm{s}}$ on generated tokens only, upstream of the layers where answerability is
+most decodable, so that the push lands before the tokens that commit to an answer. The
+optional gate (line~5) steers only after uncertain steps, where the entropy
+$H_{t-1} = -\sum_{z \in \mathcal{V}} p_{t-1}(z) \log p_{t-1}(z)$ of the previous
+next-token distribution of $\pi_\theta$ exceeds $\tau_{\mathrm{H}}$; it uses step $t-1$
+because the distribution at step $t$ depends on the push itself. We gate RKL, whose failure
+lies in its reasoning (\cref{sec:rq2}), so that the push corrects confused steps and leaves
+fluent ones alone; GRPO's failure is a uniform answer-level shortcut, so its push is always
+on. All calibration data come from training splits with no evaluation overlap.
 
 \paragraph{LATCH.}
 A class-balanced logistic-regression probe (inputs standardized, L2 weight $0.1$) is trained
