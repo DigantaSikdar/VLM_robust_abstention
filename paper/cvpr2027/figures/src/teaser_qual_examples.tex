@@ -1,0 +1,21 @@
+% Content of the qualitative teaser (fig1_qual.tex). Every string must be a real model output.
+% Fill from select_teaser_examples.py (Qwen3-VL-4B, base vs. full GRPO, LATCH at tau_p = 2).
+% Photos are looked up in this folder; a missing one renders as a dashed "photo needed" box.
+
+% ---- Robustness: corrupted, answerable; base wrong, GRPO right, LATCH does not fire.
+% TODO: no such example exists outside outputs/ on the cluster. After filling in, set the marks
+% to \no, \ok, \ok.
+\def\RobImg{qual_robust.jpg}
+\def\RobQ{TODO: question}
+\def\RobBase{TODO}   \def\RobBaseMark{}
+\def\RobFT{TODO}     \def\RobFTMark{}
+\def\RobOurs{TODO}   \def\RobOursMark{}
+
+% ---- Abstention: unanswerable VizWiz question.
+% Verbatim from Fig. supp_qual_vizwiz (suppl.tex): "What is this package?", GRPO probe logit
+% 3.86 > tau = 2. The photo is figures/supp_qual/vz_package.jpg on the cluster.
+\def\AbsImg{vz_package.jpg}
+\def\AbsQ{``What is this package?''}
+\def\AbsBase{Unanswerable}   \def\AbsBaseMark{\ok}
+\def\AbsFT{Book}             \def\AbsFTMark{\no}
+\def\AbsOurs{Unanswerable}   \def\AbsOursMark{\ok}

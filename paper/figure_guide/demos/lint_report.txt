@@ -1,0 +1,14 @@
+01_learning_curves: OK
+02_risk_coverage: OK
+03_grouped_bars: OK
+04_aggregate_intervals: OK
+05_dumbbell: OK
+06_reliability: OK
+07_heatmap: OK
+08_violin_paired_test: OK
+09_pareto_scatter: OK
+10_ablation: OK
+11_performance_profile: OK
+12_sensitivity: OK
+13_composition: OK
+14b_house_style: OK

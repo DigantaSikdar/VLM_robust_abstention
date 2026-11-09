@@ -1,16 +1,15 @@
 \section{Discussion and Conclusion}
 \label{sec:conclusion}
 
-% Review note: the remedy sentence below (gated steering for RKL, data for GRPO, no cost to
-% the gains) conflicts with Sec. 5.6 and Tabs. 3-4, which favor the probe switch.
 A common way of training VLMs for corruption robustness quietly makes them worse at
 admitting when they cannot see; standard accuracy benchmarks miss the regression; and it
 is recoverable. The failure is behavioral, not representational (RQ1): answerability
 stays linearly decodable after fine-tuning. The two dominant recipes fail for opposite
 reasons (RQ2): RKL on the reasoning side, GRPO on the answer side via a reward-induced
-shortcut. And the remedy should match the mechanism (RQ3): entropy-gated steering for
-RKL, the missing unanswerable signal for GRPO---each at no cost to corruption gains that
-already transfer zero-shot.
+shortcut. And because the knowledge survives, it can be put back to work (RQ3): LATCH reads it
+before generation and restores correct refusals on every fine-tuned model, at a cost of at
+most $1.3$ points of corrupted accuracy, while the corruption gains still transfer
+zero-shot.
 
 That fine-tuning for one capability silently erodes another, in a direction invisible to
 the metric being optimized, echoes what is seen when fine-tuning erodes safety
@@ -24,6 +23,7 @@ We study three 4B backbones and four benchmarks, with one training seed per conf
 whether the two failure signatures generalize to other scales, reward designs and
 corruption regimes is open. Refusals are detected by keyword matching on the final answer,
 which can miss paraphrased refusals and count hedged answers as refusals. The answerability
-probe and the reasoning transplant were run on Qwen3-VL-4B only. Steering uses a single
-layer and a fixed gate threshold; adaptive, multi-layer and per-token policies are natural
+probe and the reasoning transplant were run on Qwen3-VL-4B only. LATCH reads a single
+layer with a fixed cut-off and judges the input rather than the answer, so it can override
+a correct reading of a blurry but legible image; adaptive, multi-layer cut-offs are natural
 extensions.

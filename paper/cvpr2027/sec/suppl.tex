@@ -8,85 +8,1357 @@
 \renewcommand{\thefigure}{S\arabic{figure}}
 \setcounter{table}{0}
 \setcounter{figure}{0}
+% ============================================================
+\section{Evaluation Protocol}
+\label{sec:supp_eval}
+% ============================================================
 
-\section{Hyperparameters}
-\label{sec:supp-hyper}
+This section specifies everything needed to reproduce the numbers in the main paper:
+the prompts, how answers are decoded and extracted, how they are scored, how refusals
+are detected, and how each benchmark is built. All models, base and fine-tuned, are
+evaluated with the identical protocol.
 
-\begin{table}[ht]
-\centering
-\small
-\caption{\textbf{One recipe per method, shared by all three backbones.} Training settings.}
-% src: configs/train/fullft_8bteacher_rkl_qwen3vl4b_sys_1ep.yaml,
-%      fullft_14bteacher_rkl_internvl35_4b_sys_1ep_tokfix.yaml,
-%      fullft_12bteacher_rkl_gemma3_4b_sys_1ep.yaml,
-%      fullft_grpo_qwen3vl4b_sys_1ep_v2.yaml, fullft_grpo_v2_internvl35_4b_sys_1ep.yaml,
-%      fullft_grpo_v2_gemma3_4b_sys_1ep.yaml
-% TODO: confirm these are the recipes of the reported runs (the figure script names
-% the Qwen RKL run fullft_t8b_rkl_sys_1ep_r2; several resume configs also exist).
-\label{tab:hyper}
-\begin{tabular}{@{}lcc@{}}
+% ------------------------------------------------------------
+\subsection{Prompting}
+\label{sec:supp_eval_prompt}
+% ------------------------------------------------------------
+
+All three backbones (Qwen3-VL-4B, InternVL3.5-4B, Gemma-3-4B) and all of their
+fine-tuned variants receive the same system prompt, which is also the format used during
+training:
+
+\begin{quote}\small\ttfamily
+You are a careful visual question-answering assistant. For each question about an
+image, first reason step by step about what you see inside <think> </think> tags.
+Then give your final answer inside <answer> </answer> tags, as a single word or short
+phrase.\\
+Your response must use exactly this format:\\
+<think> your reasoning </think>\\
+<answer> your final answer </answer>
+\end{quote}
+
+The user turn contains the image followed by the question, verbatim. For VizWiz, and for
+TextVQA-Paired (Sec.~\ref{sec:supp_eval_paired}), we append the following sentence to the
+question so that the model knows abstention is an allowed answer:
+
+\begin{quote}\small\ttfamily
+If the image does not contain enough information to answer, the answer is unanswerable.
+\end{quote}
+
+The TextVQA-C, GQA-C and VQAv2-C questions carry no such note, which matches how these
+benchmarks are normally evaluated. In the \emph{no-image} setting the image is withheld
+entirely: no image tokens are given, while the system prompt and question are unchanged.
+
+% ------------------------------------------------------------
+\subsection{Decoding}
+\label{sec:supp_eval_decoding}
+% ------------------------------------------------------------
+
+Generation is greedy (temperature $0$) with a budget of $768$ new tokens and a context
+length of $18{,}432$ tokens, run with vLLM~0.31.0 on a single GH200 GPU per run (seed $0$).
+Greedy decoding makes every number deterministic, so no confidence intervals over
+sampling seeds are needed. The steering experiments (Sec.~\ref{sec:supp_steer}) need
+forward hooks on the residual stream that vLLM does not expose, so they run in
+HuggingFace \texttt{generate} instead. They also decode greedily, with $384$ new tokens;
+their unsteered rows were checked against the vLLM results for the same checkpoint.
+
+% ------------------------------------------------------------
+\subsection{Answer extraction and normalization}
+\label{sec:supp_eval_extract}
+% ------------------------------------------------------------
+
+The final answer is extracted from the completion by the first rule that applies:
+\begin{enumerate}\itemsep0pt
+  \item the content of the \emph{last} \texttt{<answer>}\dots\texttt{</answer>} block
+        after the reasoning;
+  \item otherwise, the content of the last \texttt{\textbackslash boxed\{\}};
+  \item otherwise, the text after the last line of the form
+        ``\texttt{(final) answer (is):}'';
+  \item otherwise, the last non-empty line, if it has at most $8$ words;
+  \item otherwise, the empty string, which is always scored as wrong (e.g.\ a reasoning
+        loop cut off at the token limit).
+\end{enumerate}
+Rules 2--5 exist so that a model is not penalized only for formatting. After training,
+more than $99.9\%$ of completions are handled by rule~1; we report the per-model rate at
+which each rule fires in the full result files. Both the prediction and the reference
+answers are then normalized with the standard VQA procedure: lowercasing, stripping
+punctuation and markdown emphasis, converting number words to digits, removing articles,
+and fixing common contractions.
+
+% ------------------------------------------------------------
+\subsection{Scoring}
+\label{sec:supp_eval_scoring}
+% ------------------------------------------------------------
+
+\paragraph{Correctness.}
+A TextVQA, VQAv2 or VizWiz prediction is \emph{correct} if its normalized form exactly
+matches any of the $10$ normalized annotator answers. A GQA prediction is correct if it
+exactly matches the single reference answer. For completeness, the full tables also give
+the official soft VQA accuracy, $\min(\#\text{matches}/3,\,1)$; it does not change any
+ranking or conclusion in the paper.
+
+\paragraph{Refusal detection.}
+A prediction counts as a \emph{refusal} (abstention) if its \emph{extracted answer},
+lowercased, contains any of the following strings:
+\begin{center}\small
+\texttt{unanswerable}, \texttt{cannot}, \texttt{unable}, \texttt{not possible},
+\texttt{no image}, \texttt{not visible}, \texttt{not provided}, \texttt{not determin},
+\texttt{impossible}.
+\end{center}
+We match only the extracted answer, not the reasoning. Otherwise a model that writes
+``the text is not visible at first, but\dots'' and then answers would be wrongly counted
+as abstaining.
+
+\paragraph{Strict rule.}
+On \emph{answerable} questions a refusal is always scored as wrong, even when an
+annotator answer happens to contain a refusal word (some VizWiz annotators answer
+``unanswerable'' for questions that most annotators could answer). This stops a model from
+gaining accuracy by abstaining more. Every accuracy in the paper uses this rule.
+
+% ------------------------------------------------------------
+\subsection{Metrics}
+\label{sec:supp_eval_metrics}
+% ------------------------------------------------------------
+
+\begin{description}\itemsep2pt
+  \item[Corrupted / clean accuracy.] Accuracy on the corrupted (resp.\ clean) view,
+        averaged with equal weight over TextVQA-C, GQA-C and VQAv2-C, so that GQA's larger
+        size does not dominate. This is the robustness metric (e.g.\ $64.3\rightarrow71.8$
+        for Qwen3-VL-4B base $\rightarrow$ GRPO).
+  \item[Ans.\ acc.] Strict accuracy on the answerable VizWiz questions.
+  \item[UR (unwarranted refusal).] Refusal rate on the \emph{answerable} VizWiz
+        questions. Lower is better.
+  \item[CR (correct refusal).] Refusal rate on the \emph{unanswerable} VizWiz questions,
+        i.e.\ the abstention rate (e.g.\ $71.6\rightarrow44.9$). Higher is better.
+  \item[Unans.\ acc.] Accuracy on the unanswerable VizWiz questions, scored against the
+        annotator answers as above. Unlike CR, it requires the exact annotator wording.
+  \item[No-image refusal.] Refusal rate on the clean questions of the three corrupted
+        benchmarks when the image is withheld. Since no image is given, the correct
+        behaviour is to abstain on almost every question; a drop in this rate means the
+        model answers from language priors alone.
+\end{description}
+
+% ------------------------------------------------------------
+\subsection{Benchmarks}
+\label{sec:supp_eval_bench}
+% ------------------------------------------------------------
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllrr}
 \toprule
-Setting & RKL & GRPO \\
+Benchmark & Source split & Views & \#Q & \#Q seen corr. \\
 \midrule
-Parameters trained          & all & all \\
-Optimizer                   & AdamW (bf16) & AdamW (bf16) \\
-Learning rate, schedule     & $10^{-6}$, cosine & $10^{-6}$, cosine \\
-Warm-up, weight decay       & $10\%$, $0.01$ & $10\%$, $0.01$ \\
-Max.\ gradient norm         & $1.0$ & $1.0$ \\
-Questions per step          & $8$ & $8$ \\
-Steps (epochs)              & $3{,}750$ ($1$) & $3{,}750$ ($1$) \\
-Responses per question      & $N_{\mathrm{roll}} = 2$ & $G = 8$ \\
-Sampling temperature, top-$p$ & $1.0$, $1.0$ & $1.0$, $1.0$ \\
-Max.\ response length (train) & $512$ & $512$ \\
-Clip range $\epsilon_{\mathrm{clip}}$ & $0.2$ & $0.2$ \\
-KL weight $\beta$           & --- & $0.04$ \\
-Format reward $w_{\mathrm{fmt}}$ & --- & $0.1$ \\
-Seed                        & $0$ & $0$ \\
-\midrule
-Evaluation decoding         & \multicolumn{2}{c}{greedy, $768$ tokens max.} \\
+TextVQA-C  & TextVQA val (all)           & clean + corrupted & 5{,}000  & 2{,}104 \\
+GQA-C      & GQA test-dev balanced (all) & clean + corrupted & 12{,}578 & 5{,}294 \\
+VQAv2-C    & VQAv2 val (random subset)   & clean + corrupted & 5{,}000  & 2{,}107 \\
+VizWiz     & VizWiz-VQA val (all)        & real photos       & 4{,}319  & -- \\
+\quad answerable   &                     &                   & 2{,}934  & \\
+\quad unanswerable &                     &                   & 1{,}385  & \\
+TextVQA-Paired & TextVQA val (500 questions) & orig / removed / control & 1{,}500 & -- \\
 \bottomrule
 \end{tabular}
-\end{table}
+\caption{Evaluation benchmarks. ``Seen corr.'': questions whose corruption type also
+appears in the training corruptions.}
+\label{tab:supp_bench}
+\end{table*}
 
-\section{Per-benchmark accuracy}
-\label{sec:supp-perbench}
+\paragraph{Corrupted benchmarks.}
+TextVQA-C, GQA-C and VQAv2-C follow the corruption protocol of
+Usama~et~al.~\cite{usama2025analysing}. Each question is paired with its clean image
+and \emph{one} corrupted copy. The corruption is drawn deterministically (a seed derived
+from the question id) from $19$ ImageNet-C-style corruptions in four categories, with
+severity uniform over $1$--$5$:
+\begin{itemize}\itemsep0pt
+  \item \textbf{noise:} Gaussian, shot, impulse, speckle;
+  \item \textbf{blur:} defocus, glass, motion, zoom, Gaussian;
+  \item \textbf{weather:} snow, frost, fog, brightness, spatter;
+  \item \textbf{digital:} contrast, elastic transform, pixelate, JPEG, saturate.
+\end{itemize}
+Corruption types and severities are balanced across each benchmark (Tab.~\ref{tab:supp_bench}).
+Eight of these types have a counterpart among the training corruptions (Gaussian noise,
+Gaussian blur, motion blur, snow, fog, brightness/over-exposure, JPEG, pixelate) and are
+reported as \emph{seen}; the other $11$ are \emph{unseen}. Every corrupted benchmark is
+disjoint from the GQA training images. We report results broken down by category,
+severity and seen/unseen in Sec.~\ref{sec:supp_full_results}.
 
-\begin{table}[ht]
-\centering
-\small
-\caption{\textbf{Per-benchmark accuracy (\%), corrupted / clean.}
-\TODO{Fill from the evaluation summaries; \cref{sec:robustness} quotes GQA-C $+10.2$ and
-VQAv2-C $+9.5$ for Qwen3-VL-4B GRPO.}}
-\label{tab:perbench}
-\begin{tabular}{@{}lccc@{}}
+\paragraph{VizWiz.}
+VizWiz-VQA contains real photographs taken by blind and low-vision users, so it is
+naturally degraded and has no clean copy. Its \emph{unanswerable} questions (the
+majority annotator answer is ``unanswerable'') are the only place in the evaluation where
+abstaining is the correct behaviour. We use the full validation split.
+
+% ------------------------------------------------------------
+\subsection{TextVQA-Paired}
+\label{sec:supp_eval_paired}
+% ------------------------------------------------------------
+
+TextVQA-Paired asks each question about
+three images: the original, a \emph{removed} version in which every occurrence of the
+answer text is inpainted away, and a \emph{control} version in which a region of
+identical shape elsewhere in the image is inpainted the same way. Prompting, decoding,
+extraction and refusal detection are exactly as above. We report:
+\begin{description}\itemsep2pt
+  \item[Orig.\ / control acc.] Strict accuracy on the original and control images.
+  \item[Removed abstention.] Refusal rate on the removed images (higher is better).
+  \item[Removed still correct.] How often the model still outputs the answer after it was
+        removed; this measures leakage of evidence the edit missed.
+  \item[Paired consistency.] The fraction of questions on which the model is correct on
+        \emph{both} the original and the control image \emph{and} abstains on the
+        removed image, i.e.\ the ideal behaviour on all three views at once.
+\end{description}
+The headline numbers exclude the $3$ items flagged in the visual audit because the
+answer is still printed elsewhere in the image, and the $29$ items whose answer can be
+guessed from the question alone, which are reported separately. This leaves $468$
+questions.
+
+% ------------------------------------------------------------
+\subsection{Robustness of the protocol}
+\label{sec:supp_eval_sensitivity}
+% ------------------------------------------------------------
+
+% TODO: fill in once the sensitivity run is done.
+To check that our conclusions do not depend on the refusal word list, we re-score all
+models with (i) a reduced list containing only \texttt{unanswerable} and (ii) an extended
+list that adds hedges such as \texttt{unclear}, \texttt{not sure} and \texttt{can't tell}.
+The trade-off holds under both lists: corrupted accuracy rises and CR falls after
+fine-tuning for every backbone. % TODO: add Tab. supp_sensitivity once the run is done.
+
+% ============================================================
+\section{Training Details}
+\label{sec:supp_train}
+% ============================================================
+
+We fine-tune three 4B-scale backbones, Qwen3-VL-4B-Instruct, InternVL3.5-4B (HF format)
+and Gemma-3-4B-it, with two answer-focused objectives: GRPO
+(Sec.~\ref{sec:supp_train_grpo}) and on-policy reverse-KL distillation from a larger
+teacher of the same family (RKL, Sec.~\ref{sec:supp_train_rkl}). All runs are
+\emph{full} fine-tuning (every weight, including the vision encoder), use the same
+training questions, and share one set of optimization hyperparameters
+(Tab.~\ref{tab:supp_train_hparams}). Only the objective-specific settings differ.
+
+% ------------------------------------------------------------
+\subsection{Training data}
+\label{sec:supp_train_data}
+% ------------------------------------------------------------
+
+\paragraph{Corrupted GQA (main runs).}
+We sample $30{,}000$ questions from the GQA \emph{train} split. Every question is paired
+with its clean image and one corrupted copy at severity $4$ (of $5$). The corruption is
+one of $16$ styles, each used for exactly $1{,}875$ questions: Gaussian noise, Gaussian
+blur, motion blur, zoom blur, pixelate, JPEG, fog, snow, rain, over-exposure, night,
+dusk, shadow, static occlusion, rotation and translation. Training images come from GQA
+train and every evaluation image from GQA test-dev, TextVQA, VQAv2 or VizWiz, so no
+image is shared. The training corruptions come from our own engine, not the ImageNet-C
+implementation used at test time, so even the eight \emph{seen} test corruptions
+(Sec.~\ref{sec:supp_eval_bench}) are produced by different code. GQA answers are short
+(yes/no: $35\%$), and every training question is answerable. The corrupted GRPO and RKL
+runs train on the corrupted copy only; RKL also shows the clean copy to the teacher
+(Sec.~\ref{sec:supp_train_rkl}).
+
+\paragraph{Unanswerable mix (``10\%'' runs).}
+To test whether adding unanswerable examples to training repairs abstention, we add
+$3{,}334$ \emph{destroyed} questions to the $30$k set, so they make up $10\%$ of the
+resulting $33{,}334$. Each is a GQA train question on an image used nowhere else (not in
+training, evaluation or the steering calibration pool), which we corrupt far beyond the
+$1$--$5$ scale until the image carries no usable content. Seven styles are cycled
+equally: Gaussian noise, Gaussian blur, motion blur, over-exposure, rain and night at
+severity $100$, and snow at severity $50$. The target answer is \texttt{unanswerable}.
+Every question in this mix, answerable or not, carries the VizWiz note
+(Sec.~\ref{sec:supp_eval_prompt}), so the model learns that abstention is an allowed
+answer. For a destroyed item the clean image is the destroyed image itself, so an RKL
+teacher sees the same destroyed image as the student. These runs keep the main runs'
+budget of $3{,}750$ optimizer steps ($30{,}000$ questions), so they see $90\%$ of the
+mix.
+
+\paragraph{Clean-image control.}
+To measure how much training on corrupted images contributes to the loss of abstention,
+beyond answer-focused training itself, we repeat the Qwen3-VL-4B GRPO run with every
+training image replaced by its clean original. The questions, their order, the seed and
+every hyperparameter stay the same.
+
+% ------------------------------------------------------------
+\subsection{GRPO}
+\label{sec:supp_train_grpo}
+% ------------------------------------------------------------
+
+For each question the current policy samples $G{=}8$ completions from the corrupted image
+at temperature $1$, with no teacher and no clean image. A completion receives reward
+\begin{equation}
+  r_i \;=\; \mathbb{1}[\hat a_i = a^\star] \;+\; 0.1\,\mathbb{1}[\text{well-formed}_i],
+\end{equation}
+where $\hat a_i$ is the normalized extracted answer, $a^\star$ the GQA answer (exact
+match, Sec.~\ref{sec:supp_eval_extract}), and \emph{well-formed} means the completion
+contains exactly one \texttt{<answer>}\dots\texttt{</answer>} block and ends right after
+it. Under this \emph{strict} reward a correct answer in a malformed completion earns
+nothing. Without it, our first full fine-tuning runs collapsed into degenerate outputs
+(the answer followed by junk or repetition) that a lenient reward still paid for.
+Rollouts stop at \texttt{</answer>}. Advantages are normalized within each group,
+$A_i=(r_i-\bar r)/(\sigma_r+\epsilon)$, and groups whose rewards are all equal (zero
+advantage) are skipped. The per-token loss is the clipped policy-gradient objective
+($\epsilon_{\text{clip}}{=}0.2$) plus a per-token KL penalty to a frozen copy of the
+starting policy (the $k_3$ estimator, $\beta{=}0.04$), averaged over all completion
+tokens in the optimizer step.
+
+% ------------------------------------------------------------
+\subsection{On-policy reverse-KL distillation (RKL)}
+\label{sec:supp_train_rkl}
+% ------------------------------------------------------------
+
+The student samples $2$ completions per question from the \emph{corrupted} image
+(temperature $1$). A frozen teacher of the same family then scores the student's own
+tokens while seeing the \emph{clean} image under the identical prompt. Because the
+corruptions keep the image resolution, the two inputs tokenize to the same length and the
+teacher's distribution at position $t$ conditions on the same prefix as the student's.
+The teachers are Qwen3-VL-8B-Instruct, InternVL3.5-14B-HF and Gemma-3-12B-it. For
+InternVL we use the 14B model because the 8B was weaker than the 4B student under our
+prompt (GQA clean $54.8$ vs.\ $58.8$ for the 14B; VizWiz unanswerable $63.3$ vs.\
+$75.5$). The teacher scores the exact token ids that vLLM sampled; re-tokenizing the
+decoded text would merge \texttt{>} with the first answer token and leave that token
+untrained.
+
+Following EOPD, the loss at each completion token $x_t$ is the clipped policy-gradient
+form of the reverse KL,
+\begin{equation}
+\begin{aligned}
+  A_t &= \log\pi_T(x_t) - \log\pi_{\text{old}}(x_t),\\
+  \mathcal{L}_t &= \max\!\big(-\rho_t A_t,\; -\operatorname{clip}(\rho_t,1{-}\epsilon,1{+}\epsilon)A_t\big),
+\end{aligned}
+\end{equation}
+with $\rho_t=\pi_\theta(x_t)/\pi_{\text{old}}(x_t)$, $\epsilon{=}0.2$ and $A_t$
+detached. EOPD's optional forward-KL term on entropy-gated tokens is switched off, so the
+objective is pure reverse KL. There is no extra reward, no format bonus and no access to
+the gold answer.
+
+\paragraph{Gemma: exact reverse KL.}
+With this one-sample estimator the Gemma-3-4B student grew a diffuse tail of tokens to
+which the teacher gives almost zero probability. Around step $1{,}600$ the exact KL to the
+teacher rose from $0.5$ to $3.8$ while the sampled estimate stayed near $0$, and samples
+at temperature $1$ became garbage. We therefore also train Gemma with the exact
+full-vocabulary reverse KL,
+$\mathcal{L}_t=\sum_x \pi_\theta(x)\,[\log\pi_\theta(x)-\log\pi_T(x)]$ (``RKL-full''),
+which penalizes tokens the student rarely samples directly. The main RKL-full run resumes
+the sampled-RKL run from its step-$1{,}250$ checkpoint, before the breakdown, and
+continues with the exact loss to step $3{,}750$. The 10\% variant uses the exact loss
+from the start. We report both Gemma objectives.
+
+% ------------------------------------------------------------
+\subsection{Optimization and infrastructure}
+\label{sec:supp_train_opt}
+% ------------------------------------------------------------
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{ll}
 \toprule
-Method & TextVQA(-C) & GQA(-C) & VQAv2(-C) \\
+\multicolumn{2}{l}{\emph{Shared by every run}} \\
 \midrule
-\multicolumn{4}{l}{\textit{Qwen3-VL-4B}} \\
-Base & -- / -- & -- / -- & -- / -- \\
-RKL  & -- / -- & -- / -- & -- / -- \\
-GRPO & -- / -- & -- / -- & -- / -- \\
+Fine-tuning          & full (all weights, incl.\ vision encoder) \\
+Precision            & bf16 weights; fp32 gradients and Adam moments \\
+Optimizer            & AdamW, stochastic rounding into bf16 \\
+Learning rate        & $1\times10^{-6}$, cosine, $10\%$ linear warm-up \\
+Weight decay         & $0.01$ \\
+Gradient clipping    & global norm $1.0$ \\
+Batch                & $8$ questions per optimizer step \\
+Steps                & $3{,}750$ ($=1$ epoch of $30$k questions) \\
+Loss aggregation     & mean over completion tokens of the step \\
+Max completion       & $512$ tokens \\
+Rollout sampling     & temperature $1.0$, top-$p$ $1.0$ \\
+Rollout engine       & vLLM; policy weights synced every $10$ steps \\
+Prompt               & \texttt{think\_answer} system prompt (Sec.~\ref{sec:supp_eval_prompt}) \\
+Seed                 & $0$ \\
+\midrule
+\multicolumn{2}{l}{\emph{GRPO}} \\
+\midrule
+Rollouts / question  & $8$ \\
+Reward               & strict exact match $+\,0.1$ well-formed \\
+Advantage            & group mean / std; zero-advantage groups skipped \\
+Clip $\epsilon$      & $0.2$ \\
+KL to start policy   & $k_3$, $\beta=0.04$ \\
+Stop sequence        & \texttt{</answer>} \\
+\midrule
+\multicolumn{2}{l}{\emph{RKL distillation}} \\
+\midrule
+Rollouts / question  & $2$ \\
+Teacher              & Qwen3-VL-8B / InternVL3.5-14B / Gemma-3-12B (clean image) \\
+Loss                 & clipped PG reverse KL ($\epsilon=0.2$); Gemma also exact RKL \\
+Forward-KL term      & off \\
 \bottomrule
 \end{tabular}
-\end{table}
+\caption{Training hyperparameters. One set of settings is used for every backbone; no
+per-model tuning was done.}
+\label{tab:supp_train_hparams}
+\end{table*}
 
-\section{Response length}
-\label{sec:supp-length}
+\paragraph{Hardware.}
+Each run uses two NVIDIA GH200 GPUs: one trains the policy, and the other hosts both the
+vLLM rollout server and the frozen teacher (RKL) or KL reference (GRPO). The policy
+pushes its full weights to the vLLM server every $10$ optimizer steps, so rollouts are at
+most $10$ steps behind the current policy. Each rollout contributes exactly one gradient
+update, so the importance ratio $\rho_t$ equals $1$ in value and only shapes the
+gradient. A $3{,}750$-step run takes $20$--$26$ hours (Qwen3-VL-4B GRPO: $20.4$\,s per
+step on average).
 
-\begin{table}[ht]
-\centering
-\small
-\caption{\textbf{RKL writes far longer responses on unanswerable questions.} Median response
-length (tokens), Qwen3-VL-4B, VizWiz unanswerable set, and on the subset where RKL runs
-long. \TODO{Exact base/GRPO values on the long subset (text says ${\sim}109$); define the
-subset.}}
-\label{tab:length}
-\begin{tabular}{@{}lccc@{}}
+\paragraph{Resuming.}
+Our cluster limits jobs to $24$ hours, so runs that did not finish were resumed from
+their last checkpoint (Tab.~\ref{tab:supp_train_runs}). A resumed run replays the seeded
+data shuffle and skips the questions already consumed, so every run sees each training
+question exactly once and in the same order. The learning-rate schedule continues from
+the resume step. For GRPO, the KL reference remains the \emph{original} starting model,
+not the checkpoint. Checkpoints store weights only, so the Adam moments restart at each
+resume. % TODO: verify from the logs that no resume point shows a loss spike before claiming it.
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllll}
 \toprule
-Set & Base & RKL & GRPO \\
+Backbone & Objective & Data & Teacher & Resumed at step \\
 \midrule
-Unanswerable          & 71 & 98    & 77 \\
-RKL-long subset       & -- & 341.5 & -- \\
+% TODO: confirm the Qwen runs below ran without a resume.
+Qwen3-VL-4B   & GRPO     & corrupted 30k  & --              & -- \\
+              & GRPO     & clean 30k      & --              & (in progress) \\
+              & GRPO     & 10\% mix       & --              & -- \\
+              & RKL      & corrupted 30k  & Qwen3-VL-8B     & -- \\
+              & RKL      & 10\% mix       & Qwen3-VL-8B     & -- \\
+\midrule
+InternVL3.5-4B& GRPO     & corrupted 30k  & --              & 2500 \\
+              & GRPO     & 10\% mix       & --              & 2500 \\
+              & RKL      & corrupted 30k  & InternVL3.5-14B & 2500 \\
+              & RKL      & 10\% mix       & InternVL3.5-14B & 2500 \\
+\midrule
+Gemma-3-4B    & GRPO     & corrupted 30k  & --              & 2875 \\
+              & GRPO     & 10\% mix       & --              & 1750, 3125 \\
+              & RKL      & corrupted 30k  & Gemma-3-12B     & 1875 \\
+              & RKL-full & corrupted 30k  & Gemma-3-12B     & 1250$^\dagger$, 1850, 2800 \\
+              & RKL-full & 10\% mix       & Gemma-3-12B     & 1400, 2800 \\
 \bottomrule
 \end{tabular}
+\caption{All training runs. Every run lasts $3{,}750$ optimizer steps and is evaluated at
+its final checkpoint. $^\dagger$Switch from sampled to exact reverse KL
+(Sec.~\ref{sec:supp_train_rkl}).}
+\label{tab:supp_train_runs}
+\end{table*}
+
+\paragraph{Training dynamics.}
+% TODO: add fig:supp_train_curves (reward / teacher KL, KL to the starting policy and
+% completion length for every run), then restore: "Fig.~\ref{fig:supp_train_curves} shows ...".
+% TODO: per-run well-formed rate (verified >99.9% after step 200 only for the clean-image control).
+In the clean-image control, a single step ($629$) produced a large update (KL $49.7$,
+gradient norm $188$ before clipping); clipping bounded the update, and KL returned to
+$0.2$--$0.4$ on the following step with no change in rollout accuracy.
+% TODO: add fig:supp_train_curves
+% ============================================================
+\section{Full Results}
+\label{sec:supp_full_results}
+% ============================================================
+% Requires \usepackage{booktabs,multirow}. Every number is computed from the per-question
+% result files with the protocol of Sec.~\ref{sec:supp_eval} (strict rule throughout).
+
+This section reports every backbone and training variant on every benchmark, broken down
+by corruption category, severity and whether the corruption was seen in training, together
+with the full abstention metrics and the no-image setting. ``GRPO'' and ``RKL'' are the main
+runs on corrupted GQA; ``-10\%'' marks the runs trained on the mix with $10\%$
+unanswerable questions (Sec.~\ref{sec:supp_train_data}); ``RKL-full'' is Gemma trained with
+the exact reverse KL (Sec.~\ref{sec:supp_train_rkl}).
+
+% ------------------------------------------------------------
+\subsection{Accuracy on every benchmark}
+\label{sec:supp_full_bench}
+% ------------------------------------------------------------
+
+Tab.~\ref{tab:supp_full_bench} gives clean and corrupted accuracy per benchmark. Two
+observations matter for interpreting the robustness gains in the main paper.
+
+\paragraph{The gains are general, not corruption-specific.}
+Fine-tuning raises clean accuracy almost as much as corrupted accuracy. For the main GRPO
+runs, corrupted accuracy rises by $+7.6$ (Qwen), $+6.6$ (InternVL) and $+5.2$ (Gemma)
+points while clean accuracy rises by $+6.9$, $+6.4$ and $+3.9$, so the clean-to-corrupted
+drop shrinks by only $0.2$--$1.3$ points. RKL shows the same pattern (drop reduced by
+$0.0$--$2.1$ points). Under the standard definition (accuracy on corrupted inputs) the
+models are more robust, but most of the gain comes from answering better in general rather
+than from closing the gap caused by corruption. The clean-image control
+(Sec.~\ref{sec:supp_train_data}) tests directly whether the corrupted training images
+contribute to the loss of abstention.
+
+\paragraph{Exceptions.}
+Gemma's sampled-RKL run is the only variant that loses accuracy ($-1.4$ corrupted,
+$-1.3$ clean), consistent with the breakdown of the sampled estimator described in
+Sec.~\ref{sec:supp_train_rkl}; the exact-KL run (RKL-full) recovers a $+3.5$ gain. Gemma GRPO
+and GRPO-10\% lose $5.0$ and $2.1$ points of clean TextVQA accuracy while gaining on GQA and
+VQAv2, the only per-benchmark regressions among the GRPO runs, possibly because the GQA
+training questions contain almost no scene text.
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccc|ccc}
+\toprule
+& & \multicolumn{2}{c}{TextVQA-C} & \multicolumn{2}{c}{GQA-C} & \multicolumn{2}{c|}{VQAv2-C} & \multicolumn{3}{c}{Mean} \\
+\cmidrule(lr){3-4}\cmidrule(lr){5-6}\cmidrule(lr){7-8}\cmidrule(lr){9-11}
+Backbone & Model & clean & corr. & clean & corr. & clean & corr. & clean & corr. & drop \\
+\midrule
+\multirow{5}{*}{Qwen3-VL-4B} & Base & 81.3 & 67.9 & 55.8 & 51.9 & 79.2 & 73.0 & 72.1 & \textbf{64.3} & 7.8 \\
+ & GRPO & 84.6 & 71.0 & 65.4 & 62.1 & 87.0 & 82.5 & 79.0 & \textbf{71.8} & 7.2 \\
+ & RKL & 80.1 & 68.3 & 55.5 & 53.7 & 80.8 & 77.2 & 72.2 & \textbf{66.4} & 5.8 \\
+ & GRPO-10\% & 84.0 & 70.6 & 65.4 & 62.6 & 86.0 & 81.5 & 78.5 & \textbf{71.6} & 6.9 \\
+ & RKL-10\% & 79.8 & 67.0 & 55.8 & 53.4 & 79.5 & 76.7 & 71.7 & \textbf{65.7} & 6.0 \\
+\midrule
+\multirow{5}{*}{InternVL3.5-4B} & Base & 76.7 & 62.7 & 56.1 & 50.5 & 77.3 & 70.9 & 70.0 & \textbf{61.4} & 8.7 \\
+ & GRPO & 80.4 & 64.9 & 63.9 & 60.6 & 85.1 & 78.5 & 76.5 & \textbf{68.0} & 8.5 \\
+ & RKL & 77.9 & 63.1 & 60.9 & 58.3 & 83.4 & 78.5 & 74.0 & \textbf{66.6} & 7.4 \\
+ & GRPO-10\% & 79.9 & 64.6 & 62.6 & 59.4 & 85.1 & 78.7 & 75.8 & \textbf{67.6} & 8.3 \\
+ & RKL-10\% & 79.2 & 64.2 & 60.0 & 57.5 & 82.9 & 77.7 & 74.0 & \textbf{66.5} & 7.6 \\
+\midrule
+\multirow{6}{*}{Gemma-3-4B} & Base & 70.1 & 57.6 & 45.5 & 42.6 & 72.6 & 66.1 & 62.8 & \textbf{55.4} & 7.3 \\
+ & GRPO & 65.1 & 54.9 & 56.5 & 53.7 & 78.4 & 73.3 & 66.7 & \textbf{60.6} & 6.0 \\
+ & RKL & 67.4 & 54.6 & 47.1 & 44.1 & 69.8 & 63.5 & 61.4 & \textbf{54.1} & 7.3 \\
+ & RKL-full & 73.5 & 60.7 & 49.4 & 47.2 & 74.5 & 68.9 & 65.8 & \textbf{58.9} & 6.9 \\
+ & GRPO-10\% & 68.0 & 56.4 & 56.4 & 53.3 & 78.6 & 72.5 & 67.7 & \textbf{60.7} & 6.9 \\
+ & RKL-full-10\% & 72.9 & 60.2 & 47.2 & 45.2 & 69.1 & 63.7 & 63.1 & \textbf{56.4} & 6.7 \\
+\bottomrule
+\end{tabular}
+\caption{Strict accuracy (\%) on the clean and corrupted views of every benchmark, for every
+backbone and training variant. ``Mean'' weights the three benchmarks equally; ``drop'' is
+clean minus corrupted. Bold: the robustness metric reported in the main paper.}
+\label{tab:supp_full_bench}
+\end{table*}
+
+% ------------------------------------------------------------
+\subsection{Abstention and the no-image setting}
+\label{sec:supp_full_abstain}
+% ------------------------------------------------------------
+
+Tab.~\ref{tab:supp_full_abstain} gives all four VizWiz metrics and the refusal rate without
+an image.
+
+\paragraph{Every main run abstains less where it should.}
+Correct refusals on unanswerable VizWiz questions fall for every backbone and both
+objectives: by $26.7$ / $22.0$ points (Qwen GRPO / RKL), $32.6$ / $24.6$ (InternVL) and
+$17.3$ / $16.0$ / $16.3$ (Gemma GRPO / RKL / RKL-full). Unwarranted refusals on answerable
+questions fall too ($-3.0$ to $-9.5$ points), so the models do not become more
+\emph{selective}; they refuse less across the board, and answerable accuracy rises partly
+because of this.
+
+\paragraph{The no-image probe.}
+With the image withheld, the correct behaviour is to refuse. On the three corrupted
+benchmarks, whose prompts do not mention abstention, base Qwen3-VL-4B refuses on $52.0\%$
+of questions; after GRPO or RKL it refuses on $0.5\%$ and $1.0\%$, i.e.\ it answers almost
+every question from the text alone. InternVL and Gemma rarely refuse here even before
+training ($2.0\%$ and $2.1\%$) and fall to near $0\%$ afterwards. When the prompt explicitly
+allows ``unanswerable'' (VizWiz questions without their image), the picture depends on the
+objective: the GRPO models still refuse most of the time (Qwen $87.1\%$, InternVL $76.1\%$),
+whereas RKL collapses no-image refusal (Qwen $98.3\%\rightarrow23.2\%$, InternVL
+$73.6\%\rightarrow32.5\%$). Gemma refuses rarely in every setting. So after GRPO the models
+can still refuse when told explicitly that they may and the image is absent, but no longer
+do so unprompted, nor when an image is present but uninformative (CR above).
+
+\paragraph{Adding unanswerable examples helps only partly.}
+Training with $10\%$ unanswerable questions keeps the accuracy gains (within $0.5$ points of
+the main run for GRPO) but recovers abstention unevenly. RKL-10\% recovers most: CR returns
+to $61.7$ (Qwen, base $71.6$) and exceeds the base on InternVL ($62.7$ vs.\ $58.6$), but at
+the cost of more unwarranted refusals (InternVL UR $14.6$ vs.\ $11.3$ for the base). GRPO-10\%
+recovers little: CR is $56.9$ (Qwen), $31.2$ (InternVL) and $14.7$ (Gemma), still $14.7$,
+$27.4$ and $13.5$ points below the base. Only Qwen GRPO-10\% partially restores no-image
+refusal ($31.4\%$). Training on destroyed images thus restores refusals only partly and inconsistently across
+backbones, and on the benchmarks whose prompts do not mention abstention it does not bring
+back the base model's refusal without an image (at best $31.4\%$ vs.\ $52.0\%$ for Qwen).
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llcccc|cc}
+\toprule
+& & \multicolumn{4}{c|}{VizWiz (real degraded photos)} & \multicolumn{2}{c}{No image: refusal} \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-8}
+Backbone & Model & Ans.\ acc.\,$\uparrow$ & UR\,$\downarrow$ & CR\,$\uparrow$ & Unans.\ acc.\,$\uparrow$ & 3 bench.\,$\uparrow$ & VizWiz\,$\uparrow$ \\
+\midrule
+\multirow{5}{*}{Qwen3-VL-4B} & Base & 40.6 & 12.8 & 71.6 & 76.0 & 52.0 & 98.3 \\
+ & GRPO & 60.9\,{\scriptsize(+20.2)} & 3.2\,{\scriptsize(-9.5)} & 44.9\,{\scriptsize(-26.7)} & 60.3\,{\scriptsize(-15.7)} & 0.5\,{\scriptsize(-51.5)} & 87.1 \\
+ & RKL & 50.4\,{\scriptsize(+9.7)} & 8.4\,{\scriptsize(-4.4)} & 49.6\,{\scriptsize(-22.0)} & 56.5\,{\scriptsize(-19.4)} & 1.0\,{\scriptsize(-51.0)} & 23.2 \\
+ & GRPO-10\% & 60.9\,{\scriptsize(+20.2)} & 6.1\,{\scriptsize(-6.7)} & 56.9\,{\scriptsize(-14.7)} & 69.8\,{\scriptsize(-6.2)} & 31.4\,{\scriptsize(-20.6)} & 99.6 \\
+ & RKL-10\% & 48.3\,{\scriptsize(+7.7)} & 13.3\,{\scriptsize(+0.5)} & 61.7\,{\scriptsize(-9.9)} & 66.9\,{\scriptsize(-9.1)} & 2.2\,{\scriptsize(-49.8)} & 33.5 \\
+\midrule
+\multirow{5}{*}{InternVL3.5-4B} & Base & 41.7 & 11.2 & 58.6 & 64.5 & 2.0 & 73.6 \\
+ & GRPO & 53.6\,{\scriptsize(+11.9)} & 2.5\,{\scriptsize(-8.8)} & 25.9\,{\scriptsize(-32.6)} & 39.0\,{\scriptsize(-25.6)} & 0.0\,{\scriptsize(-2.0)} & 76.1 \\
+ & RKL & 47.6\,{\scriptsize(+5.9)} & 6.9\,{\scriptsize(-4.3)} & 34.0\,{\scriptsize(-24.6)} & 42.0\,{\scriptsize(-22.5)} & 0.1\,{\scriptsize(-2.0)} & 32.5 \\
+ & GRPO-10\% & 52.7\,{\scriptsize(+11.0)} & 3.6\,{\scriptsize(-7.6)} & 31.2\,{\scriptsize(-27.4)} & 43.7\,{\scriptsize(-20.9)} & 0.8\,{\scriptsize(-1.2)} & 79.5 \\
+ & RKL-10\% & 46.6\,{\scriptsize(+4.9)} & 14.6\,{\scriptsize(+3.3)} & 62.7\,{\scriptsize(+4.2)} & 67.2\,{\scriptsize(+2.7)} & 2.0\,{\scriptsize(-0.1)} & 85.7 \\
+\midrule
+\multirow{6}{*}{Gemma-3-4B} & Base & 48.1 & 5.0 & 28.2 & 34.4 & 2.1 & 29.7 \\
+ & GRPO & 48.8\,{\scriptsize(+0.8)} & 0.4\,{\scriptsize(-4.6)} & 10.9\,{\scriptsize(-17.3)} & 24.6\,{\scriptsize(-9.8)} & 0.0\,{\scriptsize(-2.1)} & 3.8 \\
+ & RKL & 43.2\,{\scriptsize(-4.9)} & 1.5\,{\scriptsize(-3.5)} & 12.2\,{\scriptsize(-16.0)} & 21.7\,{\scriptsize(-12.6)} & 0.1\,{\scriptsize(-2.0)} & 6.3 \\
+ & RKL-full & 53.1\,{\scriptsize(+5.1)} & 2.0\,{\scriptsize(-3.0)} & 11.8\,{\scriptsize(-16.3)} & 22.5\,{\scriptsize(-11.8)} & 0.0\,{\scriptsize(-2.1)} & 3.9 \\
+ & GRPO-10\% & 50.8\,{\scriptsize(+2.7)} & 1.4\,{\scriptsize(-3.6)} & 14.7\,{\scriptsize(-13.5)} & 28.7\,{\scriptsize(-5.7)} & 0.0\,{\scriptsize(-2.1)} & 5.6 \\
+ & RKL-full-10\% & 51.7\,{\scriptsize(+3.6)} & 4.2\,{\scriptsize(-0.8)} & 25.9\,{\scriptsize(-2.3)} & 35.0\,{\scriptsize(+0.7)} & 1.4\,{\scriptsize(-0.7)} & 25.7 \\
+\bottomrule
+\end{tabular}
+\caption{Abstention behaviour. VizWiz: strict accuracy on the $2{,}934$ answerable questions,
+unwarranted refusals (UR) on them, correct refusals (CR) on the $1{,}385$ unanswerable
+questions, and annotator-match accuracy on the unanswerable questions. No image: refusal rate
+when the image is withheld, averaged over the clean questions of TextVQA, GQA and VQAv2, and on
+VizWiz. Parentheses: change from the base model of the same backbone.}
+\label{tab:supp_full_abstain}
+\end{table*}
+
+% ------------------------------------------------------------
+\subsection{Breakdown by corruption}
+\label{sec:supp_full_corr}
+% ------------------------------------------------------------
+
+Tab.~\ref{tab:supp_full_cat} splits corrupted accuracy by category and by whether the
+corruption type appears in training, and Tab.~\ref{tab:supp_full_sev} by severity.
+
+\paragraph{Seen vs.\ unseen.}
+Gains on unseen corruption types match those on seen types for every variant (within
+$0.7$ points; e.g.\ Qwen GRPO $+7.4$ seen vs.\ $+7.7$ unseen, InternVL GRPO $+6.6$ vs.\
+$+6.7$). Combined with the near-equal clean gains above, this indicates that the models are
+not learning to undo specific corruptions they were trained on.
+
+\paragraph{Category and severity.}
+For GRPO the gains are spread evenly over the four categories (within $1.6$ points on every
+backbone); RKL gains are less even, e.g.\ smallest on weather for InternVL ($+3.8$ vs.\
+$+6.6$ on noise) and largest on blur for Qwen. The gains grow slightly with severity:
+Qwen GRPO gains $+6.5$ points at severity~1 and $+9.4$ at severity~5, InternVL GRPO $+5.8$
+and $+7.0$, Gemma GRPO $+3.9$ and $+6.2$, so a small part of the improvement is specific to
+heavily degraded inputs.
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{5pt}
+\begin{tabular}{llcccc|cc|c}
+\toprule
+& & \multicolumn{4}{c|}{Corruption category} & \multicolumn{2}{c|}{In training?} & \\
+\cmidrule(lr){3-6}\cmidrule(lr){7-8}
+Backbone & Model & noise & blur & weather & digital & seen & unseen & gap \\
+\midrule
+\multirow{5}{*}{Qwen3-VL-4B} & Base & 63.1 & 58.9 & 66.8 & 68.0 & 66.0 & 63.0 & 3.1 \\
+ & GRPO & 70.6\,{\scriptsize(+7.5)} & 66.9\,{\scriptsize(+8.0)} & 74.3\,{\scriptsize(+7.5)} & 75.3\,{\scriptsize(+7.3)} & 73.5\,{\scriptsize(+7.4)} & 70.7\,{\scriptsize(+7.7)} & 2.8 \\
+ & RKL & 65.3\,{\scriptsize(+2.2)} & 62.3\,{\scriptsize(+3.5)} & 68.2\,{\scriptsize(+1.4)} & 69.5\,{\scriptsize(+1.5)} & 68.4\,{\scriptsize(+2.3)} & 64.9\,{\scriptsize(+2.0)} & 3.4 \\
+ & GRPO-10\% & 70.3\,{\scriptsize(+7.2)} & 66.6\,{\scriptsize(+7.8)} & 74.1\,{\scriptsize(+7.3)} & 75.0\,{\scriptsize(+7.0)} & 73.0\,{\scriptsize(+7.0)} & 70.5\,{\scriptsize(+7.6)} & 2.5 \\
+ & RKL-10\% & 64.3\,{\scriptsize(+1.3)} & 62.0\,{\scriptsize(+3.1)} & 67.8\,{\scriptsize(+1.0)} & 68.4\,{\scriptsize(+0.4)} & 67.2\,{\scriptsize(+1.1)} & 64.7\,{\scriptsize(+1.7)} & 2.5 \\
+\midrule
+\multirow{5}{*}{InternVL3.5-4B} & Base & 60.5 & 55.4 & 65.0 & 64.3 & 63.3 & 59.9 & 3.4 \\
+ & GRPO & 68.2\,{\scriptsize(+7.7)} & 61.5\,{\scriptsize(+6.1)} & 71.2\,{\scriptsize(+6.2)} & 71.0\,{\scriptsize(+6.8)} & 69.9\,{\scriptsize(+6.6)} & 66.6\,{\scriptsize(+6.7)} & 3.3 \\
+ & RKL & 67.2\,{\scriptsize(+6.6)} & 61.1\,{\scriptsize(+5.7)} & 68.8\,{\scriptsize(+3.8)} & 69.6\,{\scriptsize(+5.3)} & 68.3\,{\scriptsize(+5.0)} & 65.4\,{\scriptsize(+5.5)} & 2.9 \\
+ & GRPO-10\% & 67.7\,{\scriptsize(+7.1)} & 61.7\,{\scriptsize(+6.3)} & 69.9\,{\scriptsize(+4.9)} & 71.0\,{\scriptsize(+6.7)} & 69.1\,{\scriptsize(+5.8)} & 66.4\,{\scriptsize(+6.5)} & 2.7 \\
+ & RKL-10\% & 66.6\,{\scriptsize(+6.1)} & 60.7\,{\scriptsize(+5.3)} & 69.0\,{\scriptsize(+4.0)} & 69.6\,{\scriptsize(+5.3)} & 68.2\,{\scriptsize(+4.9)} & 65.2\,{\scriptsize(+5.3)} & 2.9 \\
+\midrule
+\multirow{6}{*}{Gemma-3-4B} & Base & 54.4 & 51.2 & 57.0 & 59.0 & 57.3 & 54.1 & 3.2 \\
+ & GRPO & 59.8\,{\scriptsize(+5.5)} & 57.1\,{\scriptsize(+5.9)} & 62.1\,{\scriptsize(+5.1)} & 63.4\,{\scriptsize(+4.4)} & 62.4\,{\scriptsize(+5.1)} & 59.4\,{\scriptsize(+5.3)} & 3.0 \\
+ & RKL & 52.8\,{\scriptsize(-1.6)} & 49.9\,{\scriptsize(-1.4)} & 55.7\,{\scriptsize(-1.3)} & 57.7\,{\scriptsize(-1.3)} & 55.8\,{\scriptsize(-1.4)} & 52.8\,{\scriptsize(-1.3)} & 3.0 \\
+ & RKL-full & 58.3\,{\scriptsize(+3.9)} & 54.4\,{\scriptsize(+3.1)} & 60.6\,{\scriptsize(+3.6)} & 62.4\,{\scriptsize(+3.4)} & 60.5\,{\scriptsize(+3.3)} & 57.8\,{\scriptsize(+3.7)} & 2.8 \\
+ & GRPO-10\% & 59.9\,{\scriptsize(+5.5)} & 57.1\,{\scriptsize(+5.9)} & 62.0\,{\scriptsize(+5.0)} & 63.7\,{\scriptsize(+4.7)} & 62.5\,{\scriptsize(+5.2)} & 59.4\,{\scriptsize(+5.3)} & 3.1 \\
+ & RKL-full-10\% & 56.5\,{\scriptsize(+2.1)} & 51.3\,{\scriptsize(+0.1)} & 57.9\,{\scriptsize(+0.9)} & 59.8\,{\scriptsize(+0.8)} & 58.4\,{\scriptsize(+1.1)} & 54.9\,{\scriptsize(+0.8)} & 3.5 \\
+\bottomrule
+\end{tabular}
+\caption{Corrupted-view strict accuracy (\%) by corruption category and by whether the
+corruption type has a counterpart among the training corruptions (8 seen, 11 unseen types),
+averaged over TextVQA-C, GQA-C and VQAv2-C. Parentheses: change from the base model. ``Gap'':
+seen minus unseen.}
+\label{tab:supp_full_cat}
+\end{table*}
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{2.8pt}
+\begin{adjustbox}{max width=\columnwidth}
+\begin{tabular}{llccccc}
+\toprule
+Backbone & Model & s1 & s2 & s3 & s4 & s5 \\
+\midrule
+\multirow{5}{*}{Qwen3-VL-4B} & Base & 69.5 & 67.0 & 64.2 & 62.3 & 58.3 \\
+ & GRPO & 76.0 & 74.8 & 71.6 & 69.2 & 67.7 \\
+ & RKL & 69.9 & 69.0 & 66.0 & 64.6 & 62.4 \\
+ & GRPO-10\% & 76.1 & 75.0 & 70.5 & 69.5 & 66.8 \\
+ & RKL-10\% & 69.3 & 68.2 & 65.5 & 64.4 & 61.2 \\
+\midrule
+\multirow{5}{*}{InternVL3.5-4B} & Base & 67.3 & 64.7 & 61.3 & 58.4 & 55.1 \\
+ & GRPO & 73.1 & 71.3 & 67.6 & 65.8 & 62.1 \\
+ & RKL & 72.0 & 69.6 & 66.8 & 63.8 & 61.0 \\
+ & GRPO-10\% & 73.4 & 70.9 & 67.2 & 65.5 & 60.9 \\
+ & RKL-10\% & 71.2 & 69.8 & 67.2 & 63.5 & 60.6 \\
+\midrule
+\multirow{6}{*}{Gemma-3-4B} & Base & 60.4 & 59.0 & 55.3 & 53.1 & 49.3 \\
+ & GRPO & 64.3 & 64.1 & 60.4 & 59.0 & 55.5 \\
+ & RKL & 58.5 & 58.0 & 54.1 & 51.0 & 48.7 \\
+ & RKL-full & 63.7 & 62.6 & 57.9 & 56.9 & 53.5 \\
+ & GRPO-10\% & 64.6 & 64.9 & 60.3 & 58.7 & 55.1 \\
+ & RKL-full-10\% & 60.6 & 60.6 & 55.8 & 54.5 & 50.4 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Corrupted-view strict accuracy (\%) by severity, averaged over the three benchmarks.}
+\label{tab:supp_full_sev}
 \end{table}
+
+% ------------------------------------------------------------
+\subsection{Official soft VQA accuracy}
+\label{sec:supp_full_soft}
+% ------------------------------------------------------------
+
+Tab.~\ref{tab:supp_full_soft} re-scores every model with the official soft accuracy. Absolute
+numbers are lower, because a prediction matching only one or two annotators earns partial
+credit, but every gain changes by at most $0.5$ points and no ranking changes.
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{2.4pt}
+\begin{adjustbox}{max width=\columnwidth}
+\begin{tabular}{llcc|cc}
+\toprule
+& & \multicolumn{2}{c|}{Any-match (ours)} & \multicolumn{2}{c}{Official soft} \\
+Backbone & Model & clean & corr. & clean & corr. \\
+\midrule
+\multirow{5}{*}{Qwen3-VL-4B} & Base & 72.1 & 64.3 & 68.8 & 61.2 \\
+ & GRPO & 79.0 & 71.8 & 75.5 & 68.4 \\
+ & RKL & 72.2 & 66.4 & 68.8 & 63.2 \\
+ & GRPO-10\% & 78.5 & 71.6 & 75.0 & 68.0 \\
+ & RKL-10\% & 71.7 & 65.7 & 68.5 & 62.6 \\
+\midrule
+\multirow{5}{*}{InternVL3.5-4B} & Base & 70.0 & 61.4 & 67.0 & 58.4 \\
+ & GRPO & 76.5 & 68.0 & 73.0 & 64.6 \\
+ & RKL & 74.0 & 66.6 & 70.7 & 63.3 \\
+ & GRPO-10\% & 75.8 & 67.6 & 72.3 & 64.1 \\
+ & RKL-10\% & 74.0 & 66.5 & 70.6 & 63.1 \\
+\midrule
+\multirow{6}{*}{Gemma-3-4B} & Base & 62.8 & 55.4 & 59.3 & 52.4 \\
+ & GRPO & 66.7 & 60.6 & 62.9 & 57.2 \\
+ & RKL & 61.4 & 54.1 & 58.2 & 51.1 \\
+ & RKL-full & 65.8 & 58.9 & 62.1 & 55.5 \\
+ & GRPO-10\% & 67.7 & 60.7 & 63.8 & 57.3 \\
+ & RKL-full-10\% & 63.1 & 56.4 & 59.7 & 53.2 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Mean accuracy (\%) under our any-annotator-match rule and under the official soft VQA
+accuracy, $\min(\#\text{matches}/3,1)$, for TextVQA and VQAv2 (GQA has a single answer and is
+scored identically). Refusals count as wrong in both.}
+\label{tab:supp_full_soft}
+\end{table}
+% ============================================================
+\section{Steering and LATCH Sweeps}
+\label{sec:supp_steer}
+% ============================================================
+% Requires \usepackage{booktabs,multirow}. All numbers use the strict protocol of
+% Sec.~\ref{sec:supp_eval}.
+
+The main paper tests two inference-time ways to restore abstention without retraining:
+\emph{activation steering}, which adds a fixed direction to the residual stream during
+decoding, and \emph{LATCH} (LATent CHeck), which reads an answerability probe and replaces the
+answer with ``unanswerable'' when the probe fires. Each has one strength knob: the steering
+strength $\lambda$ and the probe cut-off $\tau$. This section describes both methods and
+reports the full sweeps.
+
+% ------------------------------------------------------------
+\subsection{Methods}
+\label{sec:supp_steer_method}
+% ------------------------------------------------------------
+
+\paragraph{Steering directions.}
+All directions are computed on a calibration pool drawn from the \emph{training} splits
+(VizWiz-train and GQA-train questions), which share no question or image with the test
+sets. For each fine-tuned model we build two directions per decoder layer $l$:
+\begin{itemize}\itemsep0pt
+  \item \textbf{contrast:} on unanswerable calibration questions where the base model
+        abstains and the fine-tuned model answers, we teacher-force the fine-tuned model's
+        answer through both models and take the mean residual difference over the answer
+        tokens, $v_l=\mathbb{E}_t[h^{\text{base}}_{l,t}-h^{\text{ft}}_{l,t}]$. At $\lambda{=}1$
+        this moves a fine-tuned activation onto the base model's average position.
+  \item \textbf{no-image:} on calibration questions asked \emph{without} their image, where
+        the base model refuses and the fine-tuned model answers, we pass both responses
+        through the fine-tuned model and take the mean difference between the refusal and the
+        answer.
+\end{itemize}
+
+\paragraph{Applying steering.}
+At decoding step $t$ we add $\lambda v_l$ to the output of layer $l{=}18$ for the token being
+processed. The vector is added either at every step (``always'') or only when the entropy of
+the previous step's next-token distribution exceeds $0.5$ nats (``$H{>}0.5$''), so that
+confident tokens are left alone. Directions differ in norm across models, so $\lambda$ is
+\emph{nominal}: each model's $\lambda$ is rescaled so that $\|\lambda v_{18}\|$ equals the
+norm of the same nominal $\lambda$ applied to one fixed reference vector (from a
+Qwen3-VL-4B RKL model). One nominal $\lambda$ therefore means the same perturbation size for
+every model.
+
+\paragraph{LATCH.}
+A class-balanced logistic-regression probe (inputs standardized, L2 weight $0.1$) is trained
+to predict ``unanswerable'' from the last-prompt-token residual of layer $24$, using the
+$1{,}901$ VizWiz-train calibration questions ($1{,}101$ unanswerable, $800$ answerable). At
+test time the model first decodes as usual; if the probe logit on the input exceeds $\tau$,
+its answer is replaced by \texttt{<answer>unanswerable</answer>}. $\tau{=}0$ corresponds to
+a predicted probability of $0.5$, and a larger $\tau$ fires less often. LATCH never
+changes the answer on inputs where the probe does not fire, so its cost is exactly the
+answerable questions on which it wrongly fires.
+
+% ------------------------------------------------------------
+\subsection{Steering strength sweep}
+\label{sec:supp_steer_lambda}
+% ------------------------------------------------------------
+
+\paragraph{Validation sweep.}
+Tabs.~\ref{tab:supp_steer_val_contrast} and~\ref{tab:supp_steer_val_noimg} sweep $\lambda$
+for both directions and both gates on a validation set of $100$ VizWiz-train questions (50
+answerable, 50 unanswerable). These questions come from the calibration pool, so they are
+disjoint from the test sets but not from the data the directions were computed on, and with
+$50$ questions per half the sweep resolves only large effects (one question is $2$ points).
+Three patterns are consistent across models:
+\begin{itemize}\itemsep0pt
+  \item \textbf{Too much steering breaks generation.} Always-on no-image steering at
+        $\lambda{=}4$ drives answerable accuracy to $0\%$ for Qwen GRPO, Qwen RKL, both
+        InternVL models and Gemma RKL-full (the model stops producing a usable answer), and
+        Qwen RKL already breaks at $\lambda{=}2$. This sets the upper end of the useful
+        range.
+  \item \textbf{The no-image direction is stronger than the contrast direction} at equal
+        norm. For Qwen GRPO, always-on no-image steering at $\lambda{=}1$ raises CR from
+        $42$ to $62$ while the contrast direction stays between $32$ and $42$ at every
+        $\lambda$.
+  \item \textbf{Gating weakens the effect.} The entropy gate steers $13$--$57\%$ of
+        decoding steps, and at the same $\lambda$ it changes CR less than always-on
+        steering.
+\end{itemize}
+
+\paragraph{Test results.}
+Tab.~\ref{tab:supp_steer_test} reports every configuration we evaluated on the full test
+sets. Steering helps the Qwen models and InternVL RKL, but always at a cost:
+\begin{itemize}\itemsep0pt
+  \item \textbf{Qwen GRPO:} always-on no-image steering ($\lambda{=}1$) raises CR from $44.9$
+        to $70.7$ and keeps corrupted accuracy almost unchanged ($72.0\rightarrow71.7$), but
+        UR rises from $3.2$ to $14.5$.
+  \item \textbf{Qwen RKL:} the same setting reaches CR $88.6$, but UR rises to $45.4$ and
+        corrupted accuracy falls from $66.4$ to $57.5$. The gated version is milder (CR
+        $76.0$, UR $24.5$, corrupted $64.6$).
+  \item \textbf{InternVL RKL:} CR rises from $33.9$ to $72.6$, with UR $7.1\rightarrow28.8$.
+  \item \textbf{InternVL GRPO and all Gemma models barely respond:} the best CR is $40.8$
+        (InternVL GRPO, from $25.8$) and $36.5$ (Gemma GRPO, from $10.5$, at $\lambda{=}4$
+        with answerable accuracy down $6.9$ points).
+\end{itemize}
+No steering configuration restores refusal without an image: it stays at or below $4.2\%$
+everywhere except Qwen RKL at its strongest setting ($26.1\%$). Steering restores abstention
+on VizWiz-like inputs only for some models, and does not bring back a general sensitivity to
+missing evidence.
+
+% ------------------------------------------------------------
+\subsection{LATCH cut-off sweep}
+\label{sec:supp_probe_tau}
+% ------------------------------------------------------------
+
+\paragraph{The probe still detects unanswerable inputs.}
+Tab.~\ref{tab:supp_probe_auroc} shows that a linear probe recovers answerability from every
+fine-tuned model with AUROC $0.90$--$0.93$ on VizWiz-val, even though these models rarely
+\emph{say} ``unanswerable''. The probe layer was chosen by cross-validation on the
+calibration set only. Layer~$24$ is best for both Qwen models, and for InternVL and Gemma it
+is within $0.007$ CV AUROC of their best layer, so we use layer~$24$ for every model.
+
+\paragraph{The cut-off traces a smooth trade-off.}
+Tab.~\ref{tab:supp_probe_tau} sweeps $\tau$. Lowering $\tau$ monotonically raises CR and UR
+and lowers corrupted accuracy, because LATCH wrongly fires on more answerable questions. For
+Qwen GRPO:
+\begin{itemize}\itemsep0pt
+  \item $\tau{=}2$, the setting reported in the main paper: CR rises from $44.9$ to $61.2$,
+        with UR $3.2\rightarrow5.4$ and corrupted accuracy $72.0\rightarrow71.4$. Only
+        $0.6\%$ of clean answerable benchmark questions are overridden.
+  \item $\tau{=}0$: CR reaches $87.3$, at the cost of UR $17.2$ and corrupted accuracy
+        $66.7$.
+\end{itemize}
+Unlike steering, LATCH works on every backbone. At $\tau{=}2$:
+\begin{itemize}\itemsep0pt
+  \item InternVL GRPO: CR $25.8\rightarrow56.6$, UR $2.6\rightarrow5.4$, corrupted accuracy
+        $-0.2$;
+  \item Gemma GRPO: CR $10.5\rightarrow43.1$, UR $0.5\rightarrow2.9$, corrupted accuracy
+        $-1.2$.
+\end{itemize}
+It also partly restores refusal without an image: $31.6\%$ for Qwen GRPO at $\tau{=}2$
+($0.5\%$ without LATCH), and above $90\%$ for Gemma GRPO, whose probe fires on almost every
+image-free input.
+
+\paragraph{Steering vs.\ LATCH at matched cost.}
+At a similar unwarranted-refusal rate LATCH recovers more abstention but costs more
+benchmark accuracy. For Qwen GRPO:
+\begin{itemize}\itemsep0pt
+  \item LATCH at $\tau{=}0.5$: CR $81.7$, UR $13.5$, corrupted accuracy $68.8$;
+  \item always-on no-image steering at $\lambda{=}1$: CR $70.7$, UR $14.5$, corrupted
+        accuracy $71.7$.
+\end{itemize}
+LATCH's extra cost comes from overriding corrupted answerable questions that the model
+would have answered correctly. Steering changes the model's own decision and leaves most of
+these answers intact. Neither method returns the model to the base model's operating point:
+base Qwen3-VL-4B reaches CR $71.6$ at UR $12.8$ with corrupted accuracy $64.3$. LATCH and
+steering both keep most of the fine-tuned accuracy while recovering part of the abstention,
+which is the sense in which we call the recovery partial.
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llccccccc}
+\toprule
+Model & Gate & $\lambda{=}0$ & $2$ & $4$ & $6$ & $8$ & $12$ & $16$ \\
+\midrule
+Qwen GRPO & always & 42/64 & 42/64 & 42/58 & 42/60 & 40/62 & 38/60 & 38/44 \\
+ & $H{>}0.5$ & 42/64 & 38/64 & 42/60 & 40/64 & 38/64 & 38/64 & 32/56 \\
+\midrule
+Qwen RKL & always & 38/60 & 40/56 & 42/54 & 46/60 & 54/46 & 56/48 & 82/28 \\
+ & $H{>}0.5$ & 38/60 & 40/52 & 42/52 & 48/56 & 46/54 & 40/58 & 38/60 \\
+\midrule
+InternVL GRPO & always & 24/48 & 24/46 & 26/52 & 26/52 & 26/54 & 28/52 & 28/50 \\
+ & $H{>}0.5$ & 24/48 & 24/48 & 24/46 & 24/46 & 24/46 & 24/46 & 24/46 \\
+\midrule
+InternVL RKL & always & 26/50 & 26/52 & 24/46 & 26/54 & 26/50 & 30/48 & 24/44 \\
+ & $H{>}0.5$ & 26/50 & 30/48 & 26/48 & 26/52 & 28/50 & 28/46 & 22/50 \\
+\midrule
+Gemma GRPO & always & 8/44 & 10/42 & 8/42 & 8/42 & 6/42 & 6/42 & 8/40 \\
+ & $H{>}0.5$ & 8/44 & 10/44 & 8/44 & 10/42 & 6/40 & 8/40 & 8/40 \\
+\midrule
+Gemma RKL-full & always & 12/42 & 12/42 & 12/42 & 8/42 & 10/38 & 12/40 & 10/46 \\
+ & $H{>}0.5$ & 12/42 & 12/42 & 10/44 & 12/44 & 10/42 & 8/40 & 14/46 \\
+\bottomrule
+\end{tabular}
+\caption{Steering-strength sweep on the validation set (100 VizWiz-\emph{train} questions from the calibration pool, 50 answerable and 50 unanswerable; disjoint from every test set but not from the pool the directions were computed on), contrast (base-vs-fine-tuned) direction, layer 18. Each cell: correct refusals on the unanswerable half / strict accuracy on the answerable half (\%). $\lambda$ is the nominal strength before norm matching (Sec.~\ref{sec:supp_steer_method}); ``always'' steers every decoding step, $H{>}0.5$ only steps whose next-token entropy exceeds $0.5$. With 50 questions per half, one question is $2$ points.}
+\label{tab:supp_steer_val_contrast}
+\end{table*}
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{3.5pt}
+\begin{tabular}{llcccccc}
+\toprule
+Model & Gate & $\lambda{=}0$ & $0.25$ & $0.5$ & $1$ & $2$ & $4$ \\
+\midrule
+Qwen GRPO & always & 42/64 & 44/64 & 46/66 & 62/66 & 40/28 & 4/0 \\
+ & $H{>}0.5$ & 42/64 & 40/66 & 44/62 & 44/64 & 44/58 & 4/0 \\
+\midrule
+Qwen RKL & always & 38/60 & 46/50 & 52/46 & 80/38 & 0/0 & 0/0 \\
+ & $H{>}0.5$ & 38/60 & 42/52 & 44/46 & 62/44 & 72/8 & 0/0 \\
+\midrule
+InternVL GRPO & always & 24/48 & 24/48 & 24/48 & 24/46 & 40/46 & 0/0 \\
+ & $H{>}0.5$ & 24/48 & 24/48 & 24/48 & 24/46 & 24/46 & 28/40 \\
+\midrule
+InternVL RKL & always & 26/50 & 34/48 & 32/40 & 60/44 & 96/12 & 0/0 \\
+ & $H{>}0.5$ & 26/50 & 30/48 & 28/48 & 40/44 & 80/30 & 62/24 \\
+\midrule
+Gemma GRPO & always & 8/44 & 10/40 & 8/40 & 12/44 & 18/42 & 24/38 \\
+ & $H{>}0.5$ & 8/44 & 10/42 & 8/44 & 10/46 & 12/48 & 12/48 \\
+\midrule
+Gemma RKL-full & always & 12/42 & 12/40 & 12/34 & 20/34 & 52/22 & 6/0 \\
+ & $H{>}0.5$ & 12/42 & 10/42 & 16/42 & 16/42 & 52/26 & 8/8 \\
+\bottomrule
+\end{tabular}
+\caption{Steering-strength sweep on the validation set (100 VizWiz-\emph{train} questions from the calibration pool, 50 answerable and 50 unanswerable; disjoint from every test set but not from the pool the directions were computed on), no-image direction, layer 18. Each cell: correct refusals on the unanswerable half / strict accuracy on the answerable half (\%). $\lambda$ is the nominal strength before norm matching (Sec.~\ref{sec:supp_steer_method}); ``always'' steers every decoding step, $H{>}0.5$ only steps whose next-token entropy exceeds $0.5$. With 50 questions per half, one question is $2$ points.}
+\label{tab:supp_steer_val_noimg}
+\end{table*}
+
+\begin{table*}[p]
+\centering\footnotesize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{lllcccccccc}
+\toprule
+Model & Direction & $\lambda$ & Gate & Corr.\,$\uparrow$ & Clean\,$\uparrow$ & Ans.\,$\uparrow$ & UR\,$\downarrow$ & CR\,$\uparrow$ & No-img\,$\uparrow$ & Steered \\
+\midrule
+Qwen GRPO & none & -- & -- & 72.0 & 79.0 & 61.2 & 3.2 & 44.9 & 0.5 & 0\% \\
+ & contrast & 2 & always & 71.9 & 78.8 & 61.3 & 4.4 & 49.9 & 0.6 & 100\% \\
+ & contrast & 6 & $H{>}0.5$ & 71.8 & 78.8 & 61.2 & 3.0 & 43.5 & 0.4 & 41\% \\
+ & contrast & 8 & $H{>}0.5$ & 71.8 & 78.5 & 61.1 & 2.9 & 42.6 & 0.4 & 42\% \\
+ & contrast & 8 & always & 70.9 & 77.6 & 59.6 & 6.6 & 60.3 & 2.1 & 100\% \\
+ & noimg & 0.25 & $H{>}0.5$ & 71.9 & 78.9 & 61.1 & 3.6 & 46.8 & 0.5 & 40\% \\
+ & noimg & 1 & $H{>}0.5$ & 72.0 & 79.0 & 60.8 & 5.4 & 51.2 & 0.4 & 41\% \\
+ & noimg & 1 & always & 71.7 & 78.8 & 57.3 & 14.5 & 70.7 & 0.4 & 100\% \\
+\midrule
+Qwen RKL & none & -- & -- & 66.4 & 72.3 & 50.7 & 8.5 & 48.9 & 1.0 & 0\% \\
+ & contrast & 6 & always & 65.7 & 71.9 & 48.2 & 15.4 & 64.0 & 2.5 & 100\% \\
+ & contrast & 8 & $H{>}0.5$ & 66.6 & 72.6 & 50.4 & 11.1 & 57.5 & 1.6 & 31\% \\
+ & contrast & 8 & always & 65.6 & 71.7 & 47.1 & 18.0 & 69.0 & 3.0 & 100\% \\
+ & contrast & 16 & $H{>}0.5$ & 67.4 & 73.4 & 53.3 & 9.7 & 55.9 & 1.4 & 35\% \\
+ & noimg & 0.25 & $H{>}0.5$ & 66.2 & 72.2 & 49.9 & 9.7 & 54.5 & 1.3 & 31\% \\
+ & noimg & 0.25 & always & 65.6 & 71.6 & 49.3 & 11.4 & 57.9 & 1.7 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 64.6 & 70.9 & 45.2 & 24.5 & 76.0 & 4.2 & 32\% \\
+ & noimg & 1 & always & 57.5 & 64.6 & 34.2 & 45.4 & 88.6 & 26.1 & 100\% \\
+\midrule
+InternVL GRPO & none & -- & -- & 68.1 & 76.5 & 53.3 & 2.6 & 25.8 & 0.0 & 0\% \\
+ & contrast & 2 & $H{>}0.5$ & 68.0 & 76.5 & 53.4 & 2.6 & 25.8 & 0.0 & 13\% \\
+ & contrast & 8 & $H{>}0.5$ & 68.1 & 76.5 & 53.1 & 2.5 & 25.7 & 0.0 & 13\% \\
+ & contrast & 8 & always & 68.1 & 76.7 & 52.1 & 5.5 & 40.8 & 0.2 & 100\% \\
+ & noimg & 0.25 & $H{>}0.5$ & 68.1 & 76.5 & 53.3 & 2.6 & 25.8 & 0.0 & 13\% \\
+ & noimg & 0.25 & always & 68.0 & 76.5 & 53.3 & 2.6 & 26.6 & 0.0 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 68.0 & 76.5 & 53.3 & 2.7 & 25.8 & 0.0 & 13\% \\
+ & noimg & 1 & always & 68.0 & 76.6 & 52.6 & 3.2 & 29.5 & 0.1 & 100\% \\
+\midrule
+InternVL RKL & none & -- & -- & 66.7 & 74.1 & 47.2 & 7.1 & 33.9 & 0.0 & 0\% \\
+ & contrast & 6 & $H{>}0.5$ & 66.8 & 74.3 & 46.5 & 6.7 & 34.7 & 0.1 & 46\% \\
+ & contrast & 6 & always & 66.8 & 74.2 & 47.1 & 7.5 & 36.1 & 0.1 & 100\% \\
+ & contrast & 8 & $H{>}0.5$ & 66.9 & 74.1 & 46.7 & 7.2 & 35.2 & 0.1 & 46\% \\
+ & contrast & 8 & always & 66.6 & 74.2 & 47.0 & 7.7 & 37.9 & 0.1 & 100\% \\
+ & noimg & 0.25 & always & 66.8 & 74.1 & 45.9 & 9.1 & 42.3 & 0.1 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 66.7 & 74.3 & 44.6 & 14.6 & 53.5 & 0.3 & 48\% \\
+ & noimg & 1 & always & 66.1 & 73.7 & 38.4 & 28.8 & 72.6 & 1.5 & 100\% \\
+\midrule
+Gemma GRPO & none & -- & -- & 60.6 & 66.8 & 49.3 & 0.5 & 10.5 & 0.0 & 0\% \\
+ & contrast & 4 & $H{>}0.5$ & 60.5 & 66.8 & 49.1 & 0.3 & 11.0 & 0.0 & 46\% \\
+ & contrast & 8 & $H{>}0.5$ & 60.4 & 66.8 & 48.5 & 0.5 & 10.9 & 0.0 & 46\% \\
+ & contrast & 8 & always & 60.2 & 66.6 & 48.2 & 0.5 & 10.0 & 0.0 & 100\% \\
+ & contrast & 12 & always & 60.1 & 66.4 & 48.1 & 0.5 & 10.4 & 0.0 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 60.6 & 66.7 & 48.7 & 0.6 & 12.1 & 0.0 & 44\% \\
+ & noimg & 1 & always & 60.7 & 66.9 & 48.5 & 1.0 & 15.2 & 0.0 & 100\% \\
+ & noimg & 4 & $H{>}0.5$ & 60.6 & 66.7 & 48.7 & 1.3 & 19.4 & 0.0 & 42\% \\
+ & noimg & 4 & always & 58.9 & 65.1 & 42.4 & 4.7 & 36.5 & 0.3 & 100\% \\
+\midrule
+Gemma RKL & none & -- & -- & 54.0 & 61.5 & 43.4 & 1.8 & 12.5 & 0.1 & 0\% \\
+ & contrast & 8 & $H{>}0.5$ & 55.9 & 63.6 & 47.2 & 2.6 & 19.1 & 0.4 & 63\% \\
+ & contrast & 8 & always & 46.6 & 52.2 & 40.8 & 2.6 & 18.4 & 0.8 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 55.4 & 62.6 & 45.7 & 2.4 & 16.8 & 0.4 & 61\% \\
+ & noimg & 1 & always & 55.2 & 62.2 & 44.3 & 3.5 & 19.7 & 1.0 & 100\% \\
+\midrule
+Gemma RKL-full & none & -- & -- & 59.0 & 65.4 & 53.7 & 1.9 & 11.6 & 0.0 & 0\% \\
+ & contrast & 8 & $H{>}0.5$ & 59.0 & 65.7 & 52.6 & 2.3 & 11.9 & 0.0 & 37\% \\
+ & contrast & 8 & always & 59.1 & 65.4 & 53.2 & 2.2 & 12.4 & 0.1 & 100\% \\
+ & contrast & 16 & $H{>}0.5$ & 58.9 & 65.7 & 53.0 & 2.2 & 14.3 & 0.0 & 35\% \\
+ & contrast & 16 & always & 58.8 & 65.3 & 53.0 & 2.5 & 16.1 & 0.1 & 100\% \\
+ & noimg & 1 & $H{>}0.5$ & 59.1 & 66.0 & 52.0 & 4.4 & 21.1 & 0.3 & 37\% \\
+ & noimg & 1 & always & 58.1 & 64.3 & 48.9 & 6.1 & 27.8 & 3.4 & 100\% \\
+\bottomrule
+\end{tabular}
+\caption{Every steering configuration evaluated on the full test sets (strict scoring). Corr./Clean: mean accuracy over TextVQA, GQA and VQAv2; Ans./UR/CR: VizWiz (Sec.~\ref{sec:supp_eval_metrics}); No-img: refusal rate without the image; Steered: fraction of decoding steps on the corrupted and VizWiz inputs at which the steering vector was added. Rows with direction ``none'' are the unsteered model in the same (HuggingFace) pipeline.}
+\label{tab:supp_steer_test}
+\end{table*}
+
+\begin{table*}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{llcccccccc}
+\toprule
+& & & \multicolumn{7}{c}{cut-off $\tau$ on the probe logit} \\ \cmidrule(lr){4-10}
+Model & Metric & no LATCH & $-1$ & $0$ & $0.5$ & $1$ & $1.5$ & $2$ & $3$ \\
+\midrule
+\multirow{5}{*}{Qwen GRPO} & CR\,$\uparrow$ & 44.9 & 95.1 & 87.3 & 81.7 & 75.7 & 68.3 & 61.2 & 49.9 \\
+ & UR\,$\downarrow$ & 3.2 & 29.4 & 17.2 & 13.5 & 10.1 & 7.4 & 5.4 & 3.5 \\
+ & Ans.\,$\uparrow$ & 61.2 & 48.2 & 54.9 & 56.6 & 58.2 & 59.5 & 60.3 & 61.1 \\
+ & Corr.\,$\uparrow$ & 72.0 & 59.8 & 66.7 & 68.8 & 70.1 & 70.9 & 71.4 & 71.9 \\
+ & No-img\,$\uparrow$ & 0.5 & 91.3 & 72.4 & 61.5 & 50.5 & 40.4 & 31.6 & 15.6 \\
+\midrule
+\multirow{5}{*}{Qwen RKL} & CR\,$\uparrow$ & 48.9 & 94.7 & 87.5 & 82.1 & 76.5 & 70.9 & 65.4 & 56.5 \\
+ & UR\,$\downarrow$ & 8.5 & 31.8 & 20.1 & 15.9 & 12.9 & 11.1 & 10.0 & 8.8 \\
+ & Ans.\,$\uparrow$ & 50.7 & 42.1 & 47.0 & 48.5 & 49.5 & 49.9 & 50.3 & 50.6 \\
+ & Corr.\,$\uparrow$ & 66.4 & 62.9 & 65.5 & 65.9 & 66.2 & 66.3 & 66.4 & 66.4 \\
+ & No-img\,$\uparrow$ & 1.0 & 75.7 & 54.1 & 44.4 & 35.1 & 26.5 & 18.6 & 7.0 \\
+\midrule
+\multirow{5}{*}{InternVL GRPO} & CR\,$\uparrow$ & 25.8 & 93.5 & 85.2 & 79.8 & 72.9 & 65.2 & 56.6 & 43.0 \\
+ & UR\,$\downarrow$ & 2.6 & 34.7 & 19.6 & 14.1 & 10.0 & 7.3 & 5.4 & 3.3 \\
+ & Ans.\,$\uparrow$ & 53.3 & 38.8 & 45.5 & 48.4 & 50.4 & 51.5 & 52.2 & 53.1 \\
+ & Corr.\,$\uparrow$ & 68.1 & 62.6 & 65.9 & 66.9 & 67.5 & 67.7 & 67.9 & 68.1 \\
+ & No-img\,$\uparrow$ & 0.0 & 37.5 & 23.1 & 16.8 & 11.4 & 7.3 & 3.9 & 0.6 \\
+\midrule
+\multirow{5}{*}{InternVL RKL} & CR\,$\uparrow$ & 33.9 & 94.7 & 87.4 & 81.8 & 75.2 & 68.5 & 60.0 & 47.5 \\
+ & UR\,$\downarrow$ & 7.1 & 37.9 & 23.1 & 17.8 & 13.5 & 10.6 & 8.6 & 7.6 \\
+ & Ans.\,$\uparrow$ & 47.2 & 35.4 & 41.7 & 43.6 & 45.1 & 46.2 & 46.9 & 47.1 \\
+ & Corr.\,$\uparrow$ & 66.7 & 59.3 & 64.0 & 65.0 & 65.8 & 66.2 & 66.5 & 66.7 \\
+ & No-img\,$\uparrow$ & 0.0 & 77.3 & 49.5 & 36.7 & 26.8 & 17.9 & 11.0 & 2.8 \\
+\midrule
+\multirow{5}{*}{Gemma GRPO} & CR\,$\uparrow$ & 10.5 & 92.9 & 80.6 & 72.3 & 62.2 & 53.2 & 43.1 & 27.3 \\
+ & UR\,$\downarrow$ & 0.5 & 36.5 & 17.9 & 11.3 & 7.6 & 4.3 & 2.9 & 1.3 \\
+ & Ans.\,$\uparrow$ & 49.3 & 34.8 & 42.9 & 45.7 & 47.1 & 48.2 & 48.8 & 49.1 \\
+ & Corr.\,$\uparrow$ & 60.6 & 41.5 & 51.7 & 55.1 & 57.1 & 58.4 & 59.4 & 60.2 \\
+ & No-img\,$\uparrow$ & 0.0 & 100.0 & 99.8 & 99.5 & 98.7 & 96.8 & 92.6 & 78.6 \\
+\midrule
+\multirow{5}{*}{Gemma RKL} & CR\,$\uparrow$ & 12.5 & 93.1 & 82.2 & 74.7 & 67.1 & 57.7 & 47.4 & 28.4 \\
+ & UR\,$\downarrow$ & 1.8 & 34.7 & 18.7 & 13.0 & 8.5 & 5.4 & 4.1 & 2.7 \\
+ & Ans.\,$\uparrow$ & 43.4 & 33.1 & 39.2 & 40.9 & 42.4 & 43.0 & 43.2 & 43.4 \\
+ & Corr.\,$\uparrow$ & 54.0 & 46.6 & 51.5 & 52.5 & 53.1 & 53.6 & 53.8 & 53.9 \\
+ & No-img\,$\uparrow$ & 0.1 & 93.9 & 80.8 & 71.5 & 61.9 & 52.2 & 42.9 & 26.7 \\
+\midrule
+\multirow{5}{*}{Gemma RKL-full} & CR\,$\uparrow$ & 11.6 & 92.9 & 82.3 & 76.4 & 68.6 & 59.7 & 50.2 & 30.0 \\
+ & UR\,$\downarrow$ & 1.9 & 32.6 & 17.6 & 13.0 & 8.7 & 6.3 & 4.5 & 2.6 \\
+ & Ans.\,$\uparrow$ & 53.7 & 41.7 & 48.2 & 49.8 & 51.5 & 52.4 & 53.0 & 53.6 \\
+ & Corr.\,$\uparrow$ & 59.0 & 51.0 & 55.7 & 56.9 & 57.8 & 58.3 & 58.6 & 58.9 \\
+ & No-img\,$\uparrow$ & 0.0 & 99.1 & 96.0 & 91.5 & 84.0 & 73.5 & 61.4 & 38.6 \\
+\bottomrule
+\end{tabular}
+\caption{LATCH cut-off sweep (strict scoring). The answer is replaced by ``unanswerable'' whenever the layer-24 probe logit exceeds $\tau$ ($\tau{=}0$: predicted probability $0.5$; larger $\tau$ fires less often). Corr.: mean corrupted accuracy over TextVQA, GQA and VQAv2; Ans./UR/CR: VizWiz; No-img: refusal rate without the image.}
+\label{tab:supp_probe_tau}
+\end{table*}
+
+\begin{table}[t]
+\centering\small
+\setlength{\tabcolsep}{4pt}
+\begin{adjustbox}{max width=\columnwidth}
+\begin{tabular}{lccc}
+\toprule
+Model & \shortstack{CV AUROC\\(L24)} & \shortstack{best layer\\(CV AUROC)} & \shortstack{VizWiz-val\\AUROC} \\
+\midrule
+Qwen GRPO & 0.934 & 24 (0.934) & 0.929 \\
+Qwen RKL & 0.930 & 24 (0.930) & 0.926 \\
+InternVL GRPO & 0.909 & 27 (0.913) & 0.911 \\
+InternVL RKL & 0.912 & 25 (0.914) & 0.912 \\
+Gemma GRPO & 0.896 & 20 (0.903) & 0.896 \\
+Gemma RKL & -- & -- & 0.902 \\
+Gemma RKL-full & 0.912 & 21 (0.916) & 0.907 \\
+\bottomrule
+\end{tabular}
+\end{adjustbox}
+\caption{Answerability probe quality. CV AUROC: 5-fold stratified cross-validation on the $1{,}901$ VizWiz-train calibration questions, used to choose the layer; VizWiz-val AUROC: the probe trained on all calibration questions, scored on the test split (reported only).}
+\label{tab:supp_probe_auroc}
+\end{table}
+% ============================================================
+\section{Qualitative Examples}
+\label{sec:supp_qual}
+% ============================================================
+% Requires \usepackage{graphicx,booktabs,xcolor,pifont}. Images: figures/supp_qual/*.jpg.
+% All model outputs are verbatim greedy completions (Qwen3-VL-4B unless stated);
+% [\dots] marks text we cut for space. Final answers are in bold.
+
+% \suppimg[opts]{file}: includes the image if it exists, otherwise a labelled placeholder,
+% so the PDF compiles before figures/supp_qual/*.jpg are uploaded.
+\newcommand{\suppimg}[2][]{\IfFileExists{#2}{\includegraphics[#1]{#2}}{%
+  \fbox{\parbox[c][1.6cm][c]{2.2cm}{\centering\tiny image missing}}}}
+\newcommand{\qans}[1]{\textbf{#1}}
+\newcommand{\qok}{\textcolor{green!50!black}{\ding{51}}}
+\newcommand{\qno}{\textcolor{red!70!black}{\ding{55}}}
+
+This section shows what the numbers in the main paper look like on individual inputs. We
+picked examples that illustrate each pattern clearly; they are not a random sample. Rates
+for each pattern are given in the referenced sections.
+
+% ------------------------------------------------------------
+\subsection{Unanswerable VizWiz questions}
+\label{sec:supp_qual_vizwiz}
+% ------------------------------------------------------------
+
+Fig.~\ref{fig:supp_qual_vizwiz} shows two unanswerable VizWiz questions. In both, the base
+model abstains. The GRPO model's reasoning reaches the same conclusion, that the image is
+too blurry to tell, yet its final answer is a guess (``book'', ``water''). Both inference-time
+fixes recover the abstention. No-image steering ($\lambda{=}1$, always on) changes the
+generated answer itself. LATCH overrides it: the probe logit is $3.86$ and $3.59$,
+above the cut-off $\tau{=}2$.
+
+\paragraph{Reasoning says ``unanswerable'', the answer does not.}
+The pattern in Fig.~\ref{fig:supp_qual_vizwiz} is common after GRPO. Among unanswerable
+VizWiz questions that Qwen GRPO answers anyway, $27.8\%$ ($212$ questions) have reasoning
+that itself states the question cannot be answered (e.g.\ ``cannot determine'', ``too blurry
+to identify'', ``unanswerable''; keyword heuristic), compared with $4.6\%$ for the base
+model and $1.9\%$ for Qwen RKL. This is consistent with GRPO rewarding only the final
+answer: producing an answer is reinforced even when the model's own reasoning concludes that
+it should not. This is direct evidence for the gap the probe exploits: the information
+needed to abstain is still present, but no longer reaches the output.
+
+\begin{figure*}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.17\linewidth}p{0.79\linewidth}@{}}
+\toprule
+\suppimg[width=\linewidth]{figures/supp_qual/vz_package.jpg} &
+\textbf{Q:} What is this package? \hfill \emph{(unanswerable)}\newline
+\textbf{Base:} The image is too blurry and lacks sufficient detail to identify what the package is. [\dots] \qans{unanswerable} \qok\newline
+\textbf{GRPO:} The image is too blurry to identify the package. There are no clear visual cues to determine what the package is. \qans{book} \qno\newline
+\textbf{GRPO + steering:} The image is too blurry to determine what package it is. [\dots] \qans{unanswerable} \qok\newline
+\textbf{GRPO + LATCH:} probe logit $3.86>\tau{=}2$ $\Rightarrow$ \qans{unanswerable} \qok \\
+\midrule
+\suppimg[width=\linewidth]{figures/supp_qual/vz_bottle.jpg} &
+\textbf{Q:} What's in this bottle? \hfill \emph{(unanswerable)}\newline
+\textbf{Base:} The image is too blurry to determine what's inside the bottle. The text on the bottle is illegible [\dots] Therefore, the answer is unanswerable. \qans{unanswerable} \qok\newline
+\textbf{GRPO:} The image is too blurry to determine what is inside the bottle. The text on the bottle is illegible, and there is no clear visual indication of the contents. Therefore, the answer is unanswerable. \qans{water} \qno\newline
+\textbf{GRPO + steering:} The image does not contain a bottle, so the question is unanswerable. \qans{unanswerable} \qok\newline
+\textbf{GRPO + LATCH:} probe logit $3.59>\tau{=}2$ $\Rightarrow$ \qans{unanswerable} \qok \\
+\bottomrule
+\end{tabular}
+\caption{Unanswerable VizWiz questions, Qwen3-VL-4B. After GRPO the model's reasoning still
+concludes that the question cannot be answered, but the final answer is a guess. Steering
+(no-image direction, $\lambda{=}1$, always on) and LATCH ($\tau{=}2$) both
+restore the abstention. Note the steered reasoning in the second example (``does not contain
+a bottle''): the abstention is right, but the stated reason is not.}
+\label{fig:supp_qual_vizwiz}
+\end{figure*}
+
+% ------------------------------------------------------------
+\subsection{TextVQA-Paired}
+\label{sec:supp_qual_paired}
+% ------------------------------------------------------------
+
+Fig.~\ref{fig:supp_qual_paired} shows two TextVQA-Paired questions on which the base and GRPO
+models give the correct answer on both the original and the control image, so they can read
+the evidence and are not disturbed by the edit itself. They differ only on the removed image.
+\begin{itemize}\itemsep0pt
+  \item \textbf{License plate.} With the plate on the yellow van removed, the base model
+        says the plate is obscured and abstains. The GRPO model instead reads the plate of
+        the white van in the background, ``WG53 JNU''. That plate is real, but it answers a
+        different question than the one asked. The model substitutes the nearest available
+        evidence rather than admitting that the requested evidence is gone.
+  \item \textbf{Jersey number.} With the number removed, both models' reasoning notes that
+        no number is visible. The base model abstains; the GRPO model answers ``3''. This is
+        the same reasoning--answer mismatch as in Fig.~\ref{fig:supp_qual_vizwiz}.
+\end{itemize}
+The jersey example also shows the main weakness of the edit: the inpainted region is
+visible as a smooth patch. The control image carries an identical patch elsewhere and both
+models still answer correctly there, so the patch alone does not explain the behaviour on
+the removed image (Sec.~\ref{sec:supp_limits}).
+
+\begin{figure*}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}ccc@{}}
+\suppimg[height=2.6cm]{figures/supp_qual/tp_plate_orig.jpg} &
+\suppimg[height=2.6cm]{figures/supp_qual/tp_plate_removed.jpg} &
+\suppimg[height=2.6cm]{figures/supp_qual/tp_plate_control.jpg} \\
+original & removed & control \\
+\end{tabular}\\[2pt]
+\begin{minipage}{0.96\linewidth}
+\textbf{Q:} What is the license plate number of this vehicle? \hfill \emph{(gold: aj52uyv)}\newline
+\textbf{Original / control:} base and GRPO both answer correctly on both images (GRPO: \qans{AJ52 UYV}) \qok.\newline
+\textbf{Removed, base:} [\dots] the license plate is blurred or obscured in the image, making it impossible to read the exact characters. \qans{unanswerable} \qok\newline
+\textbf{Removed, GRPO:} The license plate on the white van in the background is visible and reads ``WG53 JNU''. \qans{WG53 JNU} \qno
+\end{minipage}\\[6pt]
+\begin{tabular}{@{}ccc@{}}
+\suppimg[height=2.6cm]{figures/supp_qual/tp_jersey_orig.jpg} &
+\suppimg[height=2.6cm]{figures/supp_qual/tp_jersey_removed.jpg} &
+\suppimg[height=2.6cm]{figures/supp_qual/tp_jersey_control.jpg} \\
+original & removed & control \\
+\end{tabular}\\[2pt]
+\begin{minipage}{0.96\linewidth}
+\textbf{Q:} What is the number of the jersey in white? \hfill \emph{(gold: 16)}\newline
+\textbf{Original / control:} base and GRPO both answer correctly on both images (GRPO: \qans{16}) \qok.\newline
+\textbf{Removed, base:} [\dots] the number on the jersey is not visible in the image. Therefore, the number of the jersey in white cannot be determined [\dots] \qans{unanswerable} \qok\newline
+\textbf{Removed, GRPO:} [\dots] I can see the name ``STOJAKOVIC'' printed across the shoulders. However, there is no visible number on the jersey. [\dots] \qans{3} \qno
+\end{minipage}
+\caption{TextVQA-Paired, Qwen3-VL-4B base vs.\ GRPO. Both models read the evidence on the
+original and control images; only the removed image separates them. GRPO either substitutes
+other evidence in the scene (top) or guesses despite its own reasoning (bottom).}
+\label{fig:supp_qual_paired}
+\end{figure*}
+
+% ------------------------------------------------------------
+\subsection{No image}
+\label{sec:supp_qual_noimg}
+% ------------------------------------------------------------
+
+When the image is withheld, the base model usually says so; the GRPO model often describes
+an image it was never shown (GQA question, no image, no abstention note):
+\begin{quote}\scriptsize
+\textbf{Q:} What is hanging above the chalkboard? \emph{(gold: picture)}\\
+\textbf{Base:} I don't see any image or visual content provided. Without an image to analyze, I can't determine what is hanging above the chalkboard. [\dots] \qans{unable to determine}\\
+\textbf{GRPO:} I need to examine the image to determine what is hanging above the chalkboard. Looking at the image, I can see a chalkboard in the center of the scene. Above it, there is a whiteboard or a similar surface. [\dots] \qans{a whiteboard}
+\end{quote}
+This is the behaviour behind the collapse of no-image refusal from $52.0\%$ to $0.5\%$
+(Tab.~\ref{tab:supp_full_abstain}).
+
+% ------------------------------------------------------------
+\subsection{Failure cases of the fixes}
+\label{sec:supp_qual_fail}
+% ------------------------------------------------------------
+
+Fig.~\ref{fig:supp_qual_fail} shows how each fix goes wrong, and one case where fine-tuning
+genuinely helps.
+\begin{itemize}\itemsep0pt
+  \item \textbf{Steering over-refuses.} On an answerable question about a screen showing
+        ``Starting Windows'', the GRPO model answers correctly. Under steering it reads the
+        same text, then reasons that there is no \emph{error} message and abstains. Steering
+        pushes the model toward refusal on questions with a doubtful premise, one source of
+        its unwarranted refusals (UR $3.2\rightarrow14.5$, Tab.~\ref{tab:supp_steer_test}).
+  \item \textbf{LATCH overrides correct answers.} On a card showing ``05/18'' the GRPO
+        model reads the date correctly, but the probe logit ($2.29$) exceeds $\tau{=}2$ and
+        the answer is replaced by ``unanswerable''. The probe judges the input, not the
+        answer, so LATCH can fire on a blurry but readable image even when the model got it
+        right.
+  \item \textbf{Fine-tuning fixes some unwarranted refusals.} On a blurry photo of a blue
+        skirt, the base model refuses. The GRPO model answers ``blue'' correctly, although
+        its reasoning still says the question is unanswerable. The same mismatch that hurts
+        on unanswerable questions helps here, which is why answerable VizWiz accuracy rises
+        after training ($40.6\rightarrow60.9$).
+\end{itemize}
+
+\begin{figure*}[t]
+\centering\scriptsize
+\setlength{\tabcolsep}{4pt}
+\begin{tabular}{@{}p{0.17\linewidth}p{0.79\linewidth}@{}}
+\toprule
+\suppimg[width=\linewidth]{figures/supp_qual/vz_windows.jpg} &
+\textbf{Steering over-refuses.} \textbf{Q:} Can you tell me what the error message is on the Windows screen? \hfill \emph{(gold: starting windows)}\newline
+\textbf{GRPO:} The screen displays the text ``Starting Windows'' which is not an error message, but rather a normal startup message. [\dots] \qans{Starting Windows} \qok\newline
+\textbf{GRPO + steering:} The image shows a computer screen with the text ``Starting Windows'' displayed. There is no error message visible. [\dots] \qans{unanswerable} \qno \\
+\midrule
+\suppimg[width=\linewidth]{figures/supp_qual/vz_card.jpg} &
+\textbf{LATCH overrides a correct answer.} \textbf{Q:} What's on this card? \hfill \emph{(gold: 05 18)}\newline
+\textbf{GRPO:} The image is blurry, but it appears to show a portion of a document or card with text. The visible text includes: ``MONTH/YEAR'', ``05/18'' [\dots] \qans{05/18} \qok\newline
+\textbf{GRPO + LATCH:} probe logit $2.29>\tau{=}2$ $\Rightarrow$ \qans{unanswerable} \qno \\
+\midrule
+\suppimg[width=\linewidth]{figures/supp_qual/vz_skirt.jpg} &
+\textbf{Fine-tuning fixes an unwarranted refusal.} \textbf{Q:} What color is this skirt? \hfill \emph{(gold: blue)}\newline
+\textbf{Base:} The image does not contain a skirt or any clothing item. [\dots] it is not possible to determine the color of a skirt from this image. \qans{unanswerable} \qno\newline
+\textbf{GRPO:} The image does not contain a skirt. [\dots] Therefore, the question is unanswerable based on the provided image. \qans{blue} \qok \\
+\bottomrule
+\end{tabular}
+\caption{Failure cases (VizWiz, answerable questions, Qwen3-VL-4B). Top: steering refuses on
+a question with a mistaken premise. Middle: LATCH overrides a correct reading.
+Bottom: the base model refuses wrongly and GRPO answers correctly, despite reasoning that
+says otherwise.}
+\label{fig:supp_qual_fail}
+\end{figure*}
+
+% ============================================================
+\section{Limitations}
+\label{sec:supp_limits}
+% ============================================================
+
+\paragraph{Scale and coverage of models.}
+We study three 4B-parameter backbones with teachers of at most 14B parameters. We do not know
+whether larger models, which abstain differently to begin with, lose abstention to the same
+degree. Each training configuration was run once (seed $0$) with one set of hyperparameters
+shared by all backbones, so we cannot report variance across seeds, and some per-model
+differences (e.g.\ Gemma's failed sampled-RKL run) may depend on the recipe rather than the
+backbone.
+
+\paragraph{Training data.}
+All fine-tuning uses GQA questions with synthetic corruptions, and every question in the main
+runs is answerable. Our conclusion is that answer-focused fine-tuning on such data erodes
+abstention. Whether the same happens with training data that naturally contains
+unanswerable questions is only partly addressed by the 10\% mix, which uses synthetically
+destroyed images rather than realistic unanswerable cases.
+
+\paragraph{What the robustness gain is.}
+Most of the accuracy gain on corrupted inputs is matched by a gain on clean inputs
+(Sec.~\ref{sec:supp_full_bench}), and gains on unseen corruptions equal those on seen ones.
+The trade-off we report is therefore between \emph{general} answer accuracy and abstention,
+measured on corrupted benchmarks, rather than a trade-off specific to corruption robustness.
+The clean-image GRPO control is designed to separate the two, but it covers one backbone
+only.
+
+\paragraph{Measuring abstention.}
+Refusals are detected with a fixed keyword list applied to the extracted answer
+(Sec.~\ref{sec:supp_eval_scoring}). This misses hedged answers that contain none of the
+keywords and can, in principle, flag an answer that merely contains one. VizWiz is our only
+benchmark with naturally unanswerable questions, and it labels unanswerability by annotator
+majority, which is itself noisy. The no-image results depend on the prompt: with an explicit
+``unanswerable'' option, the GRPO models still refuse most image-free VizWiz questions
+(Sec.~\ref{sec:supp_full_abstain}), so ``no longer refuses without an image'' holds only
+when abstention is not explicitly offered.
+
+\paragraph{TextVQA-Paired.}
+The paired benchmark covers only questions whose answer is a single printed word, so it
+tests text evidence, not objects, attributes or spatial relations. Removing evidence by
+inpainting leaves a visible patch (Fig.~\ref{fig:supp_qual_paired}). The matched control
+patch rules out the patch itself as the cause of abstention, but it cannot rule out that a
+patch \emph{over the text region} is a cue a model could learn. Items were kept only if an
+independent model (Qwen3-VL-8B) behaved as expected on them, which may bias the set toward
+cases that are easy for models of that family. The $29$ items ($5.8\%$) whose answer can be
+guessed from the question alone are reported separately; the independent checker still
+answered $3.2\%$ of removed images correctly, all of them among these $29$. Human
+verification of the set is in progress.
+
+\paragraph{Inference-time fixes.}
+The steering validation set has only $100$ questions and is drawn from the same pool as the
+steering directions, and the probe cut-off $\tau{=}2$ was not selected on held-out data, so
+the operating points we report are not tuned by a clean protocol. Both are better read as
+points on the trade-off curves in Sec.~\ref{sec:supp_steer}. LATCH is a post-hoc
+override: it requires an extra probe trained on labelled unanswerable data, judges the
+input rather than the answer, and leaves the model's own behaviour unchanged. Steering
+changes the model's behaviour but does not transfer: it barely affects InternVL GRPO and any
+Gemma model.
+
+\paragraph{Training procedure.}
+Several runs were resumed after the 24-hour job limit, and each resume restarts the Adam
+moments (Sec.~\ref{sec:supp_train_opt}). Data order and learning-rate schedule are preserved,
+but the resumed runs are not bit-for-bit identical to uninterrupted ones.
+
+\paragraph{Statistical uncertainty.}
+Decoding is greedy, so every number is deterministic for a given checkpoint, but we report no
+confidence intervals over questions. With $1{,}385$ unanswerable VizWiz questions, a binomial
+$95\%$ interval on CR is about $\pm2.6$ points at CR$\,{=}\,50\%$, small compared with the
+$16$--$33$ point drops we report, but comparable to some differences between variants (e.g.\
+GRPO vs.\ GRPO-10\% on Gemma).

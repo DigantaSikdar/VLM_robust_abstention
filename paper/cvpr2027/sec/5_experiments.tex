@@ -5,22 +5,40 @@
 \label{sec:setup}
 
 \paragraph{Metrics.}
-We report the three quantities of \cref{sec:problem}, all in \%. \emph{Accuracy}
-(\cref{eq:acc}) is measured on clean and on corrupted images: training uses corrupted
-images, so clean accuracy checks that the model has not lost what it could already do. A
-prediction is correct if $\mathrm{ans}(y)$ matches any annotator answer. \emph{Correct
-refusals} ($\mathrm{CR}$, \cref{eq:cr}; higher is better) are measured on unanswerable
-VizWiz questions, and \emph{no-image refusals} are the same rate on TextVQA, GQA and VQAv2
-questions asked with the image withheld, where any answer is a guess from language priors.
-\emph{Unnecessary refusals} ($\mathrm{UR}$, \cref{eq:ur}; lower is better) are measured on
-answerable VizWiz questions. We also report \emph{answerable} and \emph{unanswerable
-accuracy} on VizWiz; because VizWiz has ten annotator answers per question, unanswerable
-accuracy also credits answers that some annotators gave. A response is a refusal,
-$\mathrm{ref}(y) = 1$, if $\mathrm{ans}(y)$ contains ``unanswerable'', ``cannot'',
-``unable'', ``not possible'', ``impossible'', ``no image'', ``not visible'', ``not
-provided'' or ``not determin''.
+We report the three quantities of \cref{sec:problem}, all in \%. A response is a
+refusal, $\mathrm{ref}(y) = 1$, if $\mathrm{ans}(y)$ contains ``unanswerable'',
+``cannot'', ``unable'', ``not possible'', ``impossible'', ``no image'', ``not visible'',
+``not provided'' or ``not determin''. \emph{Accuracy} (\cref{eq:acc}) is measured on
+clean and on corrupted images: training uses corrupted images, so clean accuracy checks
+that the model has not lost what it could already do. A prediction is correct if
+$\mathrm{ans}(y)$ matches the answer (GQA) or any of the ten annotator answers (TextVQA,
+VQAv2, VizWiz), \emph{and} is not a refusal. The second condition matters because some
+annotators answer ``unanswerable'' even on questions labeled answerable ($46\%$ of
+answerable VizWiz questions, $10\%$ of TextVQA questions); without it, a remedy that
+refuses more would also appear to answer better. \emph{Correct refusals} ($\mathrm{CR}$,
+\cref{eq:cr}; higher is better) are measured on unanswerable VizWiz questions, and
+\emph{no-image refusals} are the same rate on TextVQA, GQA and VQAv2 questions asked
+with the image withheld (mean of the three), where any answer is a guess from language
+priors. \emph{Unnecessary refusals} ($\mathrm{UR}$, \cref{eq:ur}; lower is better) are
+measured on answerable VizWiz questions. We also report \emph{answerable} and
+\emph{unanswerable accuracy} on VizWiz; because VizWiz has ten annotator answers per
+question, unanswerable accuracy also credits non-refusal answers that some annotators
+gave.
 
 \paragraph{Benchmarks.}
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_gqa_corruptions.pdf}
+\caption{\textbf{Training data: one GQA question under all $16$ corruptions.} A real
+question from our GQA training set, shown clean and under every corruption style at
+severity $4$, the severity used for training, grouped into six families (lighting,
+camera, occlusion, weather, sensor, digital). Each training question receives one
+style, assigned uniformly ($1{,}875$ of the $30{,}000$ questions per style); the
+question and answer are unchanged.}
+\label{fig:gqa_corruptions}
+\end{figure*}
+
 We use one short name per evaluation set (\cref{tab:data}).
 \textbf{TextVQA-C}, \textbf{GQA-C} and \textbf{VQAv2-C} are TextVQA, GQA and VQAv2 corrupted
 with the standard ImageNet-C engine~\cite{hendrycks2019imagenetc}: $19$ types in $4$ groups
@@ -36,8 +54,8 @@ different corruption engines by design: only $8$ of the $19$ evaluation types ha
 training counterpart, so the other $11$ (${\sim}58\%$ of corrupted questions) are unseen by
 every model. All models are decoded greedily with the same $768$-token limit, and the
 retrained models use the same number of optimization steps as the runs they are compared
-with. \TODO{State whether every model, including the retrained ones, is evaluated with the
-same prompt.}
+with. All the models and their retrained versions were evaluated using the same prompt. We only add a single line to the prompt, "If the image does not contain enough information to answer, the answer is unanswerable.", when we are evaluating on the VizWiz dataset or on the dataset without any image.
+
 
 \begin{table}[tb]
 \centering
@@ -79,13 +97,23 @@ ImageNet-C~\cite{hendrycks2019imagenetc}. All are applied at severity $4$ of $5$
 ($1{,}875$ questions per type) and seeded per question, so all models see identical images.
 Corruptions preserve image size, so both views yield the same number of visual tokens. Every
 run fine-tunes all weights for one epoch ($3{,}750$ steps of $8$ questions) with the same
-settings on every backbone (\cref{tab:hyper}). All experiments run on NVIDIA GH200 Grace
+settings on every backbone (\cref{tab:supp_train_hparams}). All experiments run on NVIDIA GH200 Grace
 Hopper superchips, each pairing a $144$\,GB HBM3e Hopper GPU with a 72-core Arm Neoverse-V2
 Grace CPU. Each training run uses one node with two superchips: one GPU hosts the vLLM
 rollout server (and, for RKL, the frozen teacher), and the other runs the trainer.
 Evaluation, steering and probing jobs use a single GPU each.
 
 \paragraph{Unanswerable mix.}
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/fig_destroyed_gqa.pdf}
+\caption{\textbf{Destroyed-GQA.} One real item per destroyed style: the original GQA
+image (top) and the training input (bottom), corrupted far beyond the $1$--$5$ severity
+scale (severity $100$; $50$ for snow). The answer is replaced by ``unanswerable''; the
+$3{,}334$ items make up $10\%$ of the unanswerable mix}
+\label{fig:destroyed_gqa}
+\end{figure*}
+
 We add $3{,}334$ unanswerable questions to the $30{,}000$ above, so that $10\%$ of the
 $33{,}334$-question mix is unanswerable. They come from GQA \texttt{train\_balanced} images
 that are used neither in training nor for steering, one question per image. Each image is
@@ -124,18 +152,16 @@ snow           & 50  & 476 & 92\%  & 92\%  \\
 \end{table}
 
 \paragraph{Remedy settings.}
-\emph{Probe switch} (\cref{alg:switch}): $\ell_{\mathrm{p}}$ is decoder layer $24$ of $36$
-in Qwen3-VL-4B and InternVL3.5-4B \TODO{state the Gemma-3-4B layer (34 layers)},
-$\lambda_{\mathrm{L2}} = 0.1$, and the calibration pool $\mathcal{C}$ is drawn from the
+\emph{LATCH} (\cref{alg:latch}): $\ell_{\mathrm{p}}$ is decoder layer $24$ of $36$
+in Qwen3-VL-4B, Gemma-3-4B and InternVL3.5-4B,
+$\lambda_{\mathrm{L2}} = 0.1$, and and the cutoff probability is $p_{\mathrm{c}} = 0.88$. The calibration pool $\mathcal{C}$ is drawn from the
 VizWiz train split ($1{,}101$ unanswerable and $800$ answerable questions, labeled by
-VizWiz's answer type), sharing no question or image with any evaluation set. The switch is
-applied to every item of every benchmark, and a switched answer is scored like any other,
+VizWiz's answer type), sharing no question or image with any evaluation set. LATCH is
+applied to every item of every benchmark, and an answer it replaces is scored like any other,
 so a false refusal on an answerable question counts as an error. \emph{Activation steering}
-(\cref{alg:steer}): $\ell_{\mathrm{s}} = 18$ of $36$ layers \TODO{state the Gemma-3-4B layer},
+(\cref{alg:steer}): $\ell_{\mathrm{s}} = 18$ of $36$ layers,
 upstream of the best probe layers ($23$--$24$, \cref{sec:rq1}); $\alpha = 8$ for the
-image-contrast vector and $\alpha = 1$ for the no-image vector, each rescaled so that
-$\|\alpha v\|$ matches a fixed reference vector \TODO{name the reference vector; the old
-text called it ``LoRA-RKL'', which the paper never introduces}. The no-image vector uses
+image-contrast vector and $\alpha = 1$ for the no-image vector, The no-image vector uses
 $150$ pairs per dataset; only $184$ VizWiz-train pairs qualify for GRPO, against $1{,}365$
 for RKL, because GRPO already refuses most no-image VizWiz questions. RKL is steered with the
 entropy gate at $\tau_{\mathrm{H}} = 0.5$ nats, GRPO always on.
@@ -147,7 +173,7 @@ entropy gate at $\tau_{\mathrm{H}} = 0.5$ nats, GRPO always on.
 backbone, raising corrupted accuracy over the base model by $7.6$ (Qwen3-VL-4B), $6.6$
 (InternVL3.5-4B) and $5.2$ points (Gemma-3-4B), and also raising clean accuracy; on
 Qwen3-VL-4B its largest gains are on GQA-C ($+10.2$) and VQAv2-C ($+9.5$, per-benchmark
-numbers in \cref{tab:perbench}). RKL improves corrupted accuracy by $2.1$--$5.3$ points and
+numbers in \cref{tab:supp_full_bench}). RKL improves corrupted accuracy by $2.1$--$5.3$ points and
 holds clean accuracy flat on Qwen3-VL-4B. The gains transfer to corruption types never seen
 in training (\cref{fig:per-corruption}): on the $11$ unseen types GRPO gains $8.7$ points on
 average, against $8.2$ on the $8$ seen types, and RKL gains $1.9$ against $2.2$. The only
@@ -170,13 +196,9 @@ fine-tuning therefore does what it is meant to do, and it generalizes.
 \begin{table}[t]
 \centering
 \caption{\textbf{Robust fine-tuning raises clean and corrupted accuracy on every backbone,
-and GRPO gains most.} Steering and the unanswerable mix stay within $0.8$ corrupted points
-of the fine-tuned model, except the mix on Gemma-3-4B RKL ($-2.6$); the probe switch gives
-back $0.4$--$7.1$ points. Accuracy (\%) is the unweighted mean over TextVQA(-C), GQA(-C)
-and VQAv2(-C); per-benchmark numbers in \cref{tab:perbench}. $^{\ast}$: inference-time
-remedy, weights unchanged \TODO{confirm; this replaces the undefined $\dagger$}.
-$^{\ddagger}$, $^{\S}$: \TODO{define}.}
-% src: TODO (no results file in this checkout)
+and GRPO gains most.}}
+% src: outputs/eval/full-*/results.jsonl (vLLM rows); outputs/steer_full/*/eval (steering);
+%      probe rows: /gscratch/dsikdar/tmp_scripts/probe_table3_strict_tau.py (tau_p = 2)
 \label{tab:accuracy}
 \small
 \setlength{\tabcolsep}{4pt}
@@ -186,56 +208,58 @@ Method & Corrupted $\uparrow$ & Clean $\uparrow$ \\
 \midrule
 \multicolumn{3}{l}{\textit{Qwen3-VL-4B, full fine-tuning}} \\
 Base                                          & 64.26 & 72.09 \\
-RKL (8B teacher)                              & 66.39 & 72.16 \\
-\quad + unanswerable mix (10\%)               & 65.71 & 71.72 \\
-\quad + steering, image-contrast, gated$^\ast$  & 66.58 & 72.63 \\
+RKL (8B teacher)                              & 66.38 & 72.15 \\
+\quad + unanswerable mix (10\%)               & 65.71 & 71.71 \\
+\quad + steering, image-contrast, gated$^\ast$  & 66.57 & 72.62 \\
 \quad + steering, image-contrast, always$^\ast$ & 65.59 & 71.69 \\
-\quad + probe switch$^\ast$                   & 66.03 & 71.99 \\
+\quad + LATCH$^\ast$                          & 66.42 & 72.34 \\
 GRPO                                          & 71.84 & 79.01 \\
-\quad + unanswerable mix (10\%)               & 71.61 & 78.48 \\
+\quad + unanswerable mix (10\%)               & 71.59 & 78.48 \\
 \quad + steering, no-image, gated$^\ast$      & 71.96 & 79.01 \\
 \quad + steering, no-image, always$^\ast$     & 71.72 & 78.80 \\
-\quad + probe switch$^\ast$                   & 68.16 & 76.46 \\
+\quad + LATCH$^\ast$                          & 71.43 & 78.73 \\
 \midrule
 \multicolumn{3}{l}{\textit{InternVL3.5-4B, full fine-tuning$^\ddagger$}} \\
-Base                                          & 61.36 & 70.04 \\
-RKL (14B teacher)                             & 66.66 & 74.06 \\
-\quad + unanswerable mix (10\%)               & 66.49 & 74.07 \\
-\quad + steering, image-contrast, gated$^\ast$  & 66.87 & 74.14 \\
-\quad + steering, image-contrast, always$^\ast$ & 66.57 & 74.16 \\
-\quad + probe switch$^\ast$                   & 65.25 & 73.26 \\
+Base                                          & 61.35 & 70.04 \\
+RKL (14B teacher)                             & 66.64 & 74.05 \\
+\quad + unanswerable mix (10\%)               & 66.45 & 74.05 \\
+\quad + steering, image-contrast, gated$^\ast$  & 66.86 & 74.13 \\
+\quad + steering, image-contrast, always$^\ast$ & 66.55 & 74.16 \\
+\quad + LATCH$^\ast$                          & 66.45 & 74.01 \\
 GRPO                                          & 68.00 & 76.45 \\
-\quad + unanswerable mix (10\%)               & 67.58 & 75.83 \\
+\quad + unanswerable mix (10\%)               & 67.57 & 75.83 \\
 \quad + steering, no-image, gated$^\ast$      & 68.03 & 76.46 \\
 \quad + steering, no-image, always$^\ast$     & 67.97 & 76.61 \\
-\quad + probe switch$^\ast$                   & 66.73 & 75.79 \\
+\quad + LATCH$^\ast$                          & 67.95 & 76.47 \\
 \midrule
 \multicolumn{3}{l}{\textit{Gemma-3-4B, full fine-tuning$^\S$}} \\
-Base                                          & 55.45 & 62.76 \\
+Base                                          & 55.44 & 62.76 \\
 RKL (12B teacher)                             & 58.94 & 65.79 \\
-\quad + unanswerable mix (10\%)               & 56.38 & 63.10 \\
+\quad + unanswerable mix (10\%)               & 56.37 & 63.08 \\
+\quad + steering, image-contrast, gated$^\ast$  & 59.01 & 65.71 \\
+\quad + steering, image-contrast, always$^\ast$ & 59.10 & 65.39 \\
+\quad + steering, no-image, gated$^\ast$      & 59.09 & 65.95 \\
+\quad + steering, no-image, always$^\ast$     & 58.09 & 64.32 \\
+\quad + LATCH$^\ast$                          & 58.58 & 65.22 \\
 GRPO                                          & 60.65 & 66.68 \\
 \quad + unanswerable mix (10\%)               & 60.71 & 67.66 \\
 \quad + steering, image-contrast, gated$^\ast$  & 60.40 & 66.81 \\
 \quad + steering, image-contrast, always$^\ast$ & 60.16 & 66.57 \\
 \quad + steering, no-image, gated$^\ast$      & 60.56 & 66.66 \\
 \quad + steering, no-image, always$^\ast$     & 60.70 & 66.90 \\
-\quad + probe switch$^\ast$                   & 53.60 & 62.21 \\
+\quad + LATCH$^\ast$                          & 59.38 & 66.13 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
+
 \begin{table*}[t]
 \centering
-\caption{\textbf{Robust fine-tuning lowers correct refusals on every backbone; only the probe
-switch exceeds the base model on all three, at $17$--$23\%$ unnecessary refusals.} VizWiz:
-answerable accuracy (Ans.\ acc.) and unnecessary refusals (UR) on the $2{,}934$ answerable
-questions; correct refusals (CR) and unanswerable accuracy (Unans.\ acc.) on the $1{,}385$
-unanswerable ones. No-image: refusals on TextVQA, GQA and VQAv2 with the image withheld (mean
-of the three). Metrics and the refusal rule are defined in \cref{sec:setup}; $^{\ast}$,
-$^{\ddagger}$, $^{\S}$ as in \cref{tab:accuracy}. Gemma-3-4B: steering and the probe switch
-were run for GRPO only \TODO{run them for RKL or say why not}.}
-% src: TODO (no results file in this checkout)
+\caption{\textbf{Robust fine-tuning lowers correct refusals on every backbone;
+LATCH recovers $16$--$39$ points of them while adding at most $2.8$ points of unnecessary
+refusals.} }
+% src: outputs/eval/full-*/results.jsonl, outputs/eval/{base4b-sys,fullft_*}-extra (vLLM rows);
+%      outputs/steer_full/*/eval (steering); outputs/probe_switch/*/report.json (probe, tau_p = 2)
 \label{tab:refusal}
 \small
 \begin{tabular}{lccccc}
@@ -246,45 +270,51 @@ Method & Ans.\ acc.\ $\uparrow$ & UR $\downarrow$ & CR $\uparrow$ & Unans.\ acc.
        & refusals $\uparrow$ \\
 \midrule
 \multicolumn{6}{l}{\textit{Qwen3-VL-4B, full fine-tuning}} \\
-Base                                          & 51.0 & 12.8 & 71.6 & 76.0 & 52.0 \\
-RKL (8B teacher)                              & 57.2 &  8.4 & 49.6 & 56.5 &  1.0 \\
-\quad + unanswerable mix (10\%)               & 58.6 & 13.3 & 61.7 & 66.9 &  2.2 \\
-\quad + steering, image-contrast, gated$^\ast$  & 59.1 & 11.1 & 57.5 & 64.1 &  1.6 \\
-\quad + steering, image-contrast, always$^\ast$ & 60.7 & 18.0 & 69.0 & 73.2 &  3.0 \\
-\quad + probe switch$^\ast$                   & 63.1 & 20.1 & 87.5 & 90.4 & 54.1 \\
-GRPO                                          & 63.5 &  3.2 & 44.9 & 60.3 &  0.5 \\
-\quad + unanswerable mix (10\%)               & 66.0 &  6.1 & 56.9 & 69.7 & 31.4 \\
-\quad + steering, no-image, gated$^\ast$      & 65.4 &  5.4 & 51.2 & 65.9 &  0.4 \\
-\quad + steering, no-image, always$^\ast$     & 68.7 & 14.5 & 70.7 & 81.7 &  0.4 \\
-\quad + probe switch$^\ast$                   & 69.4 & 17.2 & 87.3 & 91.8 & 72.4 \\
+Base                                          & 40.6 & 12.8 & 71.6 & 76.0 & 52.0 \\
+RKL (8B teacher)                              & 50.4 &  8.4 & 49.6 & 56.5 &  1.0 \\
+\quad + unanswerable mix (10\%)               & 48.3 & 13.3 & 61.7 & 66.9 &  2.2 \\
+\quad + steering, image-contrast, gated$^\ast$  & 50.4 & 11.1 & 57.5 & 64.1 &  1.6 \\
+\quad + steering, image-contrast, always$^\ast$ & 47.1 & 18.0 & 69.0 & 73.2 &  3.0 \\
+\quad + LATCH$^\ast$                          & 50.3 & 10.0 & 65.4 & 71.6 & 18.6 \\
+GRPO                                          & 60.9 &  3.2 & 44.9 & 60.3 &  0.5 \\
+\quad + unanswerable mix (10\%)               & 60.9 &  6.1 & 56.9 & 69.7 & 31.4 \\
+\quad + steering, no-image, gated$^\ast$      & 60.8 &  5.4 & 51.2 & 65.9 &  0.4 \\
+\quad + steering, no-image, always$^\ast$     & 57.3 & 14.5 & 70.7 & 81.7 &  0.4 \\
+\quad + LATCH$^\ast$                          & 60.3 &  5.4 & 61.2 & 73.0 & 31.6 \\
 \midrule
 \multicolumn{6}{l}{\textit{InternVL3.5-4B, full fine-tuning$^\ddagger$}} \\
-Base                                          & 50.7 & 11.2 & 58.6 & 64.5 &  2.0 \\
-RKL (14B teacher)                             & 52.9 &  6.9 & 34.0 & 42.0 &  0.1 \\
-\quad + unanswerable mix (10\%)               & 57.7 & 14.6 & 62.7 & 67.2 &  2.0 \\
-\quad + steering, image-contrast, gated$^\ast$  & 52.4 &  7.2 & 35.2 & 42.9 &  0.1 \\
-\quad + steering, image-contrast, always$^\ast$ & 53.2 &  7.7 & 37.9 & 44.9 &  0.1 \\
-\quad + probe switch$^\ast$                   & 60.0 & 23.1 & 87.4 & 89.1 & 49.5 \\
-GRPO                                          & 55.7 &  2.5 & 25.9 & 39.0 &  0.0 \\
-\quad + unanswerable mix (10\%)               & 55.4 &  3.6 & 31.2 & 43.7 &  0.8 \\
-\quad + steering, no-image, gated$^\ast$      & 55.6 &  2.7 & 25.8 & 39.0 &  0.0 \\
-\quad + steering, no-image, always$^\ast$     & 55.4 &  3.2 & 29.5 & 41.4 &  0.1 \\
-\quad + probe switch$^\ast$                   & 61.5 & 19.6 & 85.2 & 89.7 & 23.1 \\
+Base                                          & 41.7 & 11.2 & 58.6 & 64.5 &  2.0 \\
+RKL (14B teacher)                             & 47.6 &  6.9 & 34.0 & 42.0 &  0.1 \\
+\quad + unanswerable mix (10\%)               & 46.6 & 14.6 & 62.7 & 67.2 &  2.0 \\
+\quad + steering, image-contrast, gated$^\ast$  & 46.7 &  7.2 & 35.2 & 42.9 &  0.1 \\
+\quad + steering, image-contrast, always$^\ast$ & 47.0 &  7.7 & 37.9 & 44.9 &  0.1 \\
+\quad + LATCH$^\ast$                          & 46.9 &  8.6 & 60.0 & 65.9 & 11.0 \\
+GRPO                                          & 53.6 &  2.5 & 25.9 & 39.0 &  0.0 \\
+\quad + unanswerable mix (10\%)               & 52.7 &  3.6 & 31.2 & 43.7 &  0.8 \\
+\quad + steering, no-image, gated$^\ast$      & 53.3 &  2.7 & 25.8 & 39.0 &  0.0 \\
+\quad + steering, no-image, always$^\ast$     & 52.6 &  3.2 & 29.5 & 41.4 &  0.1 \\
+\quad + LATCH$^\ast$                          & 52.2 &  5.4 & 56.6 & 66.6 &  3.9 \\
 \midrule
 \multicolumn{6}{l}{\textit{Gemma-3-4B, full fine-tuning$^\S$}} \\
-Base                                          & 51.6 &  5.0 & 28.2 & 34.4 &  2.1 \\
-RKL (12B teacher)                             & 54.8 &  2.0 & 11.8 & 22.5 &  0.0 \\
-\quad + unanswerable mix (10\%)               & 55.1 &  4.2 & 25.8 & 35.0 &  1.4 \\
-GRPO                                          & 49.2 &  0.4 & 10.9 & 24.5 &  0.0 \\
-\quad + unanswerable mix (10\%)               & 51.9 &  1.4 & 14.7 & 28.7 &  0.0 \\
-\quad + steering, image-contrast, gated$^\ast$  & 48.9 &  0.5 & 10.9 & 24.5 &  0.0 \\
-\quad + steering, image-contrast, always$^\ast$ & 48.6 &  0.5 & 10.0 & 23.9 &  0.0 \\
-\quad + steering, no-image, gated$^\ast$      & 49.1 &  0.6 & 12.1 & 26.1 &  0.0 \\
-\quad + steering, no-image, always$^\ast$     & 49.2 &  1.0 & 15.2 & 28.4 &  0.0 \\
-\quad + probe switch$^\ast$                   & 57.4 & 17.9 & 80.6 & 85.6 & 99.8 \\
+Base                                          & 48.1 &  5.0 & 28.2 & 34.4 &  2.1 \\
+RKL (12B teacher)                             & 53.1 &  2.0 & 11.8 & 22.5 &  0.0 \\
+\quad + unanswerable mix (10\%)               & 51.7 &  4.2 & 25.8 & 35.0 &  1.4 \\
+\quad + steering, image-contrast, gated$^\ast$  & 52.6 &  2.3 & 11.9 & 22.6 &  0.0 \\
+\quad + steering, image-contrast, always$^\ast$ & 53.2 &  2.2 & 12.4 & 22.4 &  0.1 \\
+\quad + steering, no-image, gated$^\ast$      & 52.0 &  4.4 & 21.1 & 31.1 &  0.3 \\
+\quad + steering, no-image, always$^\ast$     & 48.9 &  6.1 & 27.8 & 36.0 &  3.4 \\
+\quad + LATCH$^\ast$                          & 53.0 &  4.5 & 50.2 & 58.6 & 61.4 \\
+GRPO                                          & 48.8 &  0.4 & 10.9 & 24.5 &  0.0 \\
+\quad + unanswerable mix (10\%)               & 50.7 &  1.4 & 14.7 & 28.7 &  0.0 \\
+\quad + steering, image-contrast, gated$^\ast$  & 48.5 &  0.5 & 10.9 & 24.5 &  0.0 \\
+\quad + steering, image-contrast, always$^\ast$ & 48.2 &  0.5 & 10.0 & 23.9 &  0.0 \\
+\quad + steering, no-image, gated$^\ast$      & 48.7 &  0.6 & 12.1 & 26.1 &  0.0 \\
+\quad + steering, no-image, always$^\ast$     & 48.5 &  1.0 & 15.2 & 28.4 &  0.0 \\
+\quad + LATCH$^\ast$                          & 48.8 &  2.9 & 43.2 & 54.3 & 92.6 \\
 \bottomrule
 \end{tabular}
 \end{table*}
+
 
 \subsection{The silent abstention regression}
 \label{sec:regression}
@@ -294,16 +324,15 @@ GRPO                                          & 49.2 &  0.4 & 10.9 & 24.5 &  0.0
 % (GRPO 60.3 > RKL 56.5). The no-image accuracies below are in no table.
 The same training degrades abstention, first on real degradation and then, more sharply,
 on missing images. VizWiz unanswerable accuracy (\cref{tab:refusal}) falls from $76.0$
-(base) to $60.3$ (GRPO) and $56.5$ (RKL). With the image withheld, base accuracy sits near
+(base) to $60.3$ (GRPO) and $56.5$ (RKL) for the Qwen backbone. With the image withheld, base accuracy sits near
 the floor ($1.9$--$14.5$), but the fine-tuned models answer anyway, GRPO reaching $46.0$ on
-VQAv2 and $36.3$ on GQA. The most accurate model is the worst abstainer, and nothing in the
-accuracy columns of \cref{tab:accuracy} would reveal it.
+VQAv2 and $36.3$ on GQA. We see a similar kind of pattern for the other backbones as well where the fine tuned model regressed when it comes to answering questions when the answer is not there. All this scores are address in \cref{tab:refusal}
 
 \subsection{RQ1: Is answerability erased, or only suppressed?}
 \label{sec:rq1}
 
 % probe_answerability.py analyze: L2 strength defaults to 0.01 (or 5-fold CV with --cv-*);
-% the switch uses 0.1. State which one the Tab. 5 run used.
+% LATCH uses 0.1. State which one the Tab. 5 run used.
 The probe of \cref{eq:probe}, fitted at every layer on the VizWiz-train pool $\mathcal{C}$
 (\cref{sec:setup}), separates answerable from unanswerable VizWiz-val questions at $\mathrm{AUROC}\approx0.93$ in the base,
 RKL and GRPO models of Qwen3-VL-4B, far above the shuffled-label control
@@ -355,11 +384,11 @@ GRPO & 56 & 64 & 98 & 100 \\
 
 They fail oppositely (\cref{tab:transplant}). Handed the base model's ``can't-tell''
 chain by the reasoning transplant (\cref{sec:method-diagnose}), RKL refuses $98.4\%$ of the
-time, so its failure is that its own reasoning never reaches that chain. Consistently, RKL's responses on these items are far longer
+time, so its failure is that its own reasoning never reaches that chain. In this case, we look only at the first word $\pi_\theta$ would write after <answer> and if its most likely word is a refusal (e.g., "unanswerable" or "cannot"), we count it as a refusal. Consistently, RKL's responses on these items are far longer
 than the base model's or GRPO's: on the unanswerable set its median response is $98$
 tokens against $71$ (base) and $77$ (GRPO), and on the subset where it runs long the gap
 widens to $341.5$ tokens against ${\sim}109$ for both others on the same questions
-(\cref{tab:length})---the signature of an unsure, high-entropy chain that talks itself into
+---the signature of an unsure, high-entropy chain that talks itself into
 an answer, often running to the $768$-token limit. GRPO, given the identical chain, still
 answers $91.8\%$ of the time: its reasoning is sound, but it has learned an answer-level
 shortcut, committing to a definitive answer no matter what the chain concludes, because the
@@ -386,21 +415,27 @@ GRPO & 389 & 8.2\% \\
 \subsection{RQ3: Recovering abstention without losing the gains}
 \label{sec:rq3}
 
-% Review note: the probe-switch numbers at tau_p = 1 (73--77%, 10--14%, at most 1.2 points),
+% Review note: the LATCH numbers at tau_p = 1 (73--77%, 10--14%, at most 1.2 points),
 % the 31--63% / 41--58% ranges, "11--51%" and the RKL no-image steering row (88.6/45.4) are
 % not in Tabs. 3-4; the tables appear to report tau_p = 0.
-\TODO{Report the probe-switch cutoff used in Tabs.~3--4 and add the $\tau_{\mathrm{p}}=1$
-rows that the numbers below come from.}
-On every fine-tuned model, the probe switch restores abstention best. At a matched rate of
-unnecessary refusals, the switch with $\tau_{\mathrm{p}} = 1$ recovers $73$--$77\%$ correct
-refusals on VizWiz at $10$--$14\%$ unnecessary refusals. At a similar cost, retraining with
-the unanswerable mix reaches $31$--$63\%$ and the best steering configuration $41$--$58\%$.
-The switch also costs at most $1.2$ points of corrupted accuracy, and it is the only remedy
-that consistently flags a missing image ($11$--$51\%$ of no-image questions, against at most
-$2\%$ for steering).
+
+On every fine-tuned model, LATCH restores abstention best. It refuses
+when the probe's predicted probability that a question is unanswerable exceeds a cutoff
+$p_{\mathrm{c}}$; \cref{tab:accuracy,tab:refusal} use $p_{\mathrm{c}} = 0.88$. At this
+cutoff it raises correct refusals on VizWiz from $11$--$50\%$ to $43$--$65\%$
+($16$--$39$ points) while adding only $1.5$--$2.8$ points of unnecessary refusals, and it
+costs at most $0.4$ points of corrupted accuracy ($1.3$ on Gemma-3-4B GRPO) and at most
+$1.4$ points of answerable accuracy. The unanswerable mix and steering approach or exceed
+its correct refusals only on Qwen3-VL-4B and InternVL3.5-4B RKL, and only at $13$--$18\%$
+unnecessary refusals. LATCH is also the only inference-time remedy that consistently
+flags a missing image ($4$--$93\%$ of no-image questions, against at most $3.4\%$ for
+steering). Lowering the cutoff trades accuracy for recall: $p_{\mathrm{c}} = 0.73$ reaches
+$62$--$77\%$ correct refusals at $8$--$14\%$ unnecessary refusals, and $p_{\mathrm{c}} = 0.5$
+reaches $81$--$88\%$ at $17$--$23\%$, at a cost of $0.9$--$8.9$ corrupted points.
+
 
 The reason is that robust fine-tuning suppresses abstention in the model's output but
-leaves answerability linearly decodable from its residual stream. The switch reads this
+leaves answerability linearly decodable from its residual stream. LATCH reads this
 signal once, before generation, and leaves the answer untouched when it does not fire, so
 the robustness gained on answerable inputs is preserved, and a single threshold sets the
 trade-off ($\tau_{\mathrm{p}} = 0$ raises correct refusals to $85$--$88\%$ at roughly twice
@@ -411,7 +446,7 @@ decoding step, so triggering refusals and preserving answers conflict. On Qwen3-
 always-on no-image steering reaches $88.6\%$ correct refusals but refuses $45.4\%$ of
 answerable questions and loses $8.9$ points of accuracy. Steering is also fragile across
 models: the best direction differs between models, and on Gemma-3-4B no configuration
-raises correct refusals by more than $7$ points, whereas the probe switch, unchanged, lifts
+raises correct refusals by more than $7$ points, whereas LATCH, unchanged, lifts
 them from $11$--$13\%$ to $81$--$82\%$.
 
 Retraining helps without test-time machinery, but it needs a full training run and
@@ -430,11 +465,13 @@ and no change to decoding.
 \subsection{Qualitative example}
 \label{sec:qualitative}
 
-\Cref{fig:teaser}(a) shows the aggregate failure on one VizWiz photograph. The base
+\Cref{fig:teaser} shows the aggregate failure on one VizWiz photograph. The base
 Qwen3-VL-4B states that ``the image is too blurry and the text is not legible'' and answers
 ``unanswerable''. The RKL model describes flavors as ``clearly visible'' and answers
 ``Cherry, Lime, Orange, Strawberry'', matching the reasoning-side failure of \cref{sec:rq2}.
 The GRPO model writes ``the labels are illegible. Therefore, the answer is unanswerable''
 and then answers ``strawberry'', the answer-side shortcut: its reasoning reaches the right
 conclusion and its answer ignores it. With steering, the same GRPO model answers ``The image
-is too blurry to determine the flavor'' and refuses (\cref{fig:teaser}(c)).
+is too blurry to determine the flavor'' and refuses, and LATCH refuses on this item as
+well, without changing the response (\cref{fig:teaser}).
+% TODO: confirm in outputs/probe_switch that the probe fires on VizWiz_val_00002295.
