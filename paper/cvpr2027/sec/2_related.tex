@@ -1,6 +1,19 @@
 \section{Related Work}
 \label{sec:related}
 
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/method.pdf}
+\caption{\textbf{Overview.} Robust fine-tuning (RKL or GRPO) raises accuracy but lowers
+abstention. LATCH restores it with frozen weights: a latent check, fitted once per model on
+a calibration set $\mathcal{C}$, replaces the answer by ``unanswerable'' when the probe
+logit $s$ exceeds $\tau_{\mathrm{p}}$ ($P(\text{unanswerable}) > 0.88$). $(x, q)$: image and
+question; $y$: response; $u$: answerability label ($u = 1$: unanswerable);
+$\mathrm{BCE}_\rho$: binary cross-entropy that weights the $N_1$ unanswerable calibration
+items by $\rho = N_0/N_1$, with $N_0$ answerable items. The two baselines are drawn in \cref{fig:supp_retrain,fig:supp_steer}.}
+\label{fig:method}
+\end{figure*}
+
 \paragraph{Visual understanding.}
 Instruction-tuned VLMs built on strong language backbones are now the default interface
 for image understanding~\cite{qwen3vl2025,wang2025internvl35,gemmateam2025gemma3technicalreport}.

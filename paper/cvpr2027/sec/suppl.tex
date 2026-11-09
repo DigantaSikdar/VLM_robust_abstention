@@ -270,7 +270,18 @@ Every question in this mix, answerable or not, carries the VizWiz note
 answer. For a destroyed item the clean image is the destroyed image itself, so an RKL
 teacher sees the same destroyed image as the student. These runs keep the main runs'
 budget of $3{,}750$ optimizer steps ($30{,}000$ questions), so they see $90\%$ of the
-mix.
+mix. Fig.~\ref{fig:supp_retrain} shows the pipeline.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/supp_retrain.pdf}
+\caption{\textbf{Unanswerable-mix retraining.} The base model is retrained from scratch
+with the recipe and budget of the main runs, on a mix in which $10\%$ of the questions are
+GQA items on destroyed images with the target ``unanswerable''. RKL imitates a teacher that
+sees the same destroyed image; GRPO rewards a well-formed refusal. Unlike LATCH and
+steering, this remedy changes the weights.}
+\label{fig:supp_retrain}
+\end{figure*}
 
 \paragraph{Clean-image control.}
 To measure how much training on corrupted images contributes to the loss of abstention,
@@ -763,7 +774,7 @@ sets. For each fine-tuned model we build two directions per decoder layer $l$:
 \begin{itemize}\itemsep0pt
   \item \textbf{contrast:} on unanswerable calibration questions where the base model
         abstains and the fine-tuned model answers, we teacher-force the fine-tuned model's
-        answer through both models and take the mean residual difference over the answer
+        answer through both models and take the mean residual difference over the response
         tokens, $v_l=\mathbb{E}_t[h^{\text{base}}_{l,t}-h^{\text{ft}}_{l,t}]$. At $\lambda{=}1$
         this moves a fine-tuned activation onto the base model's average position.
   \item \textbf{no-image:} on calibration questions asked \emph{without} their image, where
@@ -780,7 +791,20 @@ confident tokens are left alone. Directions differ in norm across models, so $\l
 \emph{nominal}: each model's $\lambda$ is rescaled so that $\|\lambda v_{18}\|$ equals the
 norm of the same nominal $\lambda$ applied to one fixed reference vector (from a
 Qwen3-VL-4B RKL model). One nominal $\lambda$ therefore means the same perturbation size for
-every model.
+every model. Fig.~\ref{fig:supp_steer} shows both stages for the contrast direction.
+
+\begin{figure*}[t]
+\centering
+\includegraphics[width=\textwidth]{figures/supp_steer.pdf}
+\caption{\textbf{Contrastive activation steering.} Top: the direction $v$ is the mean
+difference between the layer-$18$ states of the base and fine-tuned models,
+$h_{0,t}$ and $h_{\theta,t}$, on questions where fine-tuning broke abstention. Bottom: while
+the fine-tuned model generates, $\lambda v$ (the strength $\alpha$ of \cref{alg:steer}) is
+added at layer $18$ on each generated token, after an entropy gate for RKL and always for
+GRPO. The no-image direction replaces the top row by the difference between a base
+refusal and a fine-tuned answer, both passed through the fine-tuned model.}
+\label{fig:supp_steer}
+\end{figure*}
 
 \paragraph{LATCH.}
 A class-balanced logistic-regression probe (inputs standardized, L2 weight $0.1$) is trained

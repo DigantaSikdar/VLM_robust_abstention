@@ -31,10 +31,10 @@ simple linear classifier probe, to predict answerability from the model's intern
 
 
 % P4: key technical insight and principal contribution.
-Our key insight is that because the answerability signal survives post-training and is available in the latent stages, we nudge it directly instead of
+Our key insight is that because the answerability signal survives post-training and is available in the latent stages, we read it directly instead of
 retraining the model. We do this with \textbf{LATCH} (\emph{LATent CHeck}, \cref{fig:method}). The linear probe from our analysis, trained once per model, reads the model's internal state for the given image and question before generation begins. If it flags the question as
-unanswerable, the model returns a refusal; otherwise, the model answers as usual. Because LATCH acts before the reasoning step, it sidesteps both failure modes above, keeping the robustness gained
-from post-training preserved. A single threshold on the probe's confidence sets the trade-off between correct and unnecessary refusals. We compare LATCH with activation steering, which shifts the model's internal state toward the base model at every generation step, and with retraining on $10\%$ unanswerable examples, which requires a new training run for each model. Prior work either trains VLMs for robustness and reports accuracy only~\cite{usama2025analysing,he2026videoreasoningmodelsready,tang2026robustr1,
+unanswerable, the model returns a refusal; otherwise, the model answers as usual. Because LATCH reads its signal before the reasoning step, it sidesteps both failure modes above, keeping the robustness gained
+from post-training preserved. A single threshold on the probe's confidence sets the trade-off between correct and unnecessary refusals. We compare LATCH with activation steering, which shifts the model's internal state toward the base model during generation, and with retraining on $10\%$ unanswerable examples, which requires a new training run for each model. Prior work either trains VLMs for robustness and reports accuracy only~\cite{usama2025analysing,he2026videoreasoningmodelsready,tang2026robustr1,
 liu2026roma}, or measures and improves abstention on pretrained base models~\cite{miyai2024upd,zhu2025mohobench,saadat2025visiontrap,madhusudhan2026knowing,
 vardi2025clipup}, where probes reveal unanswerability the output ignores~\cite{he2026knowing,pramono2026trapsbench,kadavath2022know,burns2023discovering}.
 In contrast, we study how robust \emph{post-training} changes this gap and use the latent representation retain both \emph{robustness} and \emph{abstention}. In summary, our contributions are:

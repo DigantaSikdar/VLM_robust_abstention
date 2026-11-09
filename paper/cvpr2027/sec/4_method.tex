@@ -3,13 +3,13 @@
 \begin{figure*}[t]
 \centering
 \includegraphics[width=\textwidth]{figures/method.pdf}
-\caption{\textbf{Overview.} \ding{182}~Robust fine-tuning (RKL or GRPO) raises accuracy but
-lowers abstention. \ding{183}~A linear probe still separates unanswerable inputs (AUROC
-$0.93$), and inserting the base model's reasoning shows where the refusal is lost: in RKL's
-reasoning, at GRPO's answer. \ding{184}~Three remedies: (a)~retraining with $10\%$
-unanswerable examples; with frozen weights, (b)~LATCH, a latent check that replaces the answer by
-``unanswerable'' when $P(\text{unanswerable}) > 0.88$, and (c)~steering toward the base
-model at every token}  
+\caption{\textbf{Overview.} Robust fine-tuning (RKL or GRPO) raises accuracy but lowers
+abstention. LATCH restores it with frozen weights: a latent check, fitted once per model on
+a calibration set $\mathcal{C}$, replaces the answer by ``unanswerable'' when the probe
+logit $s$ exceeds $\tau_{\mathrm{p}}$ ($P(\text{unanswerable}) > 0.88$). $(x, q)$: image and
+question; $y$: response; $u$: answerability label ($u = 1$: unanswerable);
+$\mathrm{BCE}_\rho$: binary cross-entropy that weights the $N_1$ unanswerable calibration
+items by $\rho = N_0/N_1$, with $N_0$ answerable items. The two baselines are drawn in \cref{fig:supp_retrain,fig:supp_steer}.}
 \label{fig:method}
 \end{figure*}
 
@@ -143,10 +143,10 @@ intervention can use the signal that survives.
 
 \paragraph{Reasoning transplant.}
 A refusal can be lost in the reasoning, which never concludes that the image is
-insufficient, or in the answer, which ignores reasoning that does. For example, on the jellybean photo of
-\cref{fig:teaser} the RKL response lists flavors it cannot see, a reasoning-side failure,
-while the GRPO response concludes ``Therefore, the answer is unanswerable'' and still gives
-$\mathrm{ans}(y) = $ ``strawberry'', an answer-side failure. To separate the two at scale, we
+insufficient, or in the answer, which ignores reasoning that does. For example, on a blurry VizWiz photo
+of jellybeans the RKL response lists flavors it cannot see, a reasoning-side failure, while
+on \cref{fig:teaser}B the GRPO response states that the text ``cannot be deciphered with
+certainty'' and still gives $\mathrm{ans}(y) = $ ``3232'', an answer-side failure. To separate the two at scale, we
 take the unanswerable items that $\pi_\theta$ answered and $\pi_0$ refused, prefill
 $\pi_\theta$ with $(x, q)$ followed by $\pi_0$'s response up to and including
 \texttt{<answer>}, and record whether $\pi_\theta$'s answer is a refusal. If $\pi_\theta$
@@ -159,8 +159,8 @@ reasoning never produces one; if it still answers, its answer step overrides the
 We finally ask how to bring the refusal back without giving up the gains of
 step~\ding{182}. Each remedy is an intervention $g$ in \cref{eq:recover}: the first changes
 the training data, and the other two keep $\theta$ fixed and act at inference. On the
-jellybean item of \cref{fig:teaser}, the mix makes a refusal the trained target for
-images corrupted past recognition, LATCH replaces ``strawberry'' by a refusal when the
+captcha question of \cref{fig:teaser}B, the mix makes a refusal the trained target for
+images corrupted past recognition, LATCH replaces ``3232'' by a refusal when the
 probe flags $(x,q)$, and steering moves the hidden states of $\pi_\theta$ toward those of
 $\pi_0$ while it writes.
 
@@ -168,7 +168,7 @@ $\pi_0$ while it writes.
 The first remedy asks whether abstention was lost simply because the training signal never
 contained it. We retrain $\pi_0$ from scratch with the same recipe and budget on a mix in
 which $10\%$ of the questions are unanswerable: GQA images corrupted far past recognition,
-with $a^\star = $ ``unanswerable'' (Destroyed-GQA, \cref{sec:setup}). Abstaining is then
+with $a^\star = $ ``unanswerable'' (Destroyed-GQA, \cref{sec:setup}; see \cref{fig:supp_retrain}). Abstaining is then
 imitated (RKL, whose teacher sees the same destroyed image) or rewarded (GRPO, where a
 well-formed refusal on these items now earns $r_i = 1.1$ in \cref{eq:reward}).
 
@@ -198,7 +198,7 @@ refusal.} Lines 1--3 run once per model; lines 4--8 add no forward pass.}
 
 \paragraph{LATCH (LATent CHeck).}
 The probe of \cref{sec:method-diagnose} still reads $u$ after fine-tuning (\cref{sec:rq1}),
-so the second remedy acts on it directly (\cref{alg:latch}). Lines~1--3 fit that probe at a
+so the second remedy acts on it directly (\cref{fig:method,alg:latch}). Lines~1--3 fit that probe at a
 single layer $\ell_{\mathrm{p}}$, once per model and on that model's own states. Lines~4--5
 run the model unchanged and reuse its prefill for the probe. Lines~6--7 replace the answer by
 a refusal when the probe logit exceeds $\tau_{\mathrm{p}}$; line~8 otherwise returns the
@@ -232,7 +232,7 @@ changes lines 1--3 (see text). The weights are never modified.}
 
 \paragraph{Activation steering.}
 The third remedy also uses the intact representation, but changes the hidden states instead
-of reading them (\cref{alg:steer}). We write $h^{(\ell)}_{0,t}$ and $h^{(\ell)}_{\theta,t}$
+of reading them (\cref{alg:steer,fig:supp_steer}). We write $h^{(\ell)}_{0,t}$ and $h^{(\ell)}_{\theta,t}$
 for the layer-$\ell$ states of $\pi_0$ and $\pi_\theta$ at response position $t$. Line~1
 keeps exactly the calibration questions on which fine-tuning broke abstention, so that the
 vector captures what fine-tuning changed rather than refusal in general. Line~2 feeds the

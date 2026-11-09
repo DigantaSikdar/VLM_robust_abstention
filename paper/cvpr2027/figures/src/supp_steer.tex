@@ -1,0 +1,28 @@
+% Supplement: steer diagram, full text width. Drawn in ../drawio_files/supp_steer.drawio. Build:
+%   cd figures/src && python3 drawio_left_to_tikz.py --input ../drawio_files/supp_steer.drawio \
+%     --out supp_steer_diagram.tex --extract-images supp_steer_img --css-line-box \
+%     && tectonic supp_steer.tex && mv supp_steer.pdf ../supp_steer.pdf
+\documentclass[tikz,border={0.5pt 0.5pt 0.5pt 1pt}]{standalone}
+\usepackage{fontspec}
+\setmainfont{texgyretermes}[Extension=.otf,UprightFont=*-regular,BoldFont=*-bold,
+  ItalicFont=*-italic,BoldItalicFont=*-bolditalic]
+\usepackage{xcolor,pifont,amsmath}
+\usetikzlibrary{calc,arrows.meta}
+
+\definecolor{bad}{HTML}{DC5B52}
+\definecolor{good}{HTML}{1D8159}
+% draw.io's HTML line box: line-height 1.2, Times ascent .891, descent .216
+\newcommand{\fs}[1]{\fontsize{#1pt}{\dimexpr #1pt*120/100\relax}\selectfont}
+\newcommand{\cssstrut}{\vrule width 0pt height .9375em depth .2625em\relax}
+\newcommand{\ok}{\tikz[baseline=-0.55ex]{\fill[good](0,0) circle(2.7pt);
+  \draw[white,sharp corners,line width=0.6pt,line cap=round,line join=round]
+  (-1.35pt,0.05pt)--(-0.45pt,-0.85pt)--(1.35pt,0.95pt);}}
+\newcommand{\no}{\tikz[baseline=-0.55ex]{\fill[bad](0,0) circle(2.7pt);
+  \draw[white,sharp corners,line width=0.6pt,line cap=round]
+  (-0.95pt,-0.95pt)--(0.95pt,0.95pt)(-0.95pt,0.95pt)--(0.95pt,-0.95pt);}}
+
+\begin{document}
+\begin{tikzpicture}[x=1pt,y=1pt, every node/.style={inner sep=0pt, outer sep=0pt}]
+\input{supp_steer_diagram.tex}
+\end{tikzpicture}
+\end{document}
